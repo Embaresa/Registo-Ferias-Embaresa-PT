@@ -4,13 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Marcação de Férias — Embaresa PT</title>
+<meta name="theme-color" content="#1E3A5F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Férias">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#F4F1EC;--surface:#FFF;--surface-alt:#ECE8E2;--primary:#1B4332;--primary-l:#2D6A4F;--primary-ll:#D8F3DC;--accent:#C97D2B;--text:#1A1A1A;--text-m:#6B6560;--text-l:#9A9490;--danger:#C0392B;--danger-l:#FDECEA;--warn:#D68910;--warn-l:#FEF5E7;--ok:#1E8449;--ok-l:#E8F8EF;--info:#2471A3;--info-l:#EBF5FB;--brd:#DDD6CC;--sh:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04);--shl:0 4px 12px rgba(0,0,0,.08),0 12px 36px rgba(0,0,0,.06);--r:12px;--rs:8px;--rx:6px;--t:.2s ease}
+:root{--bg:#EFF3F8;--surface:#FFF;--surface-alt:#E2E8F0;--primary:#1E3A5F;--primary-l:#2563EB;--primary-ll:#DBEAFE;--accent:#3B82F6;--text:#1A1A2E;--text-m:#64748B;--text-l:#94A3B8;--danger:#DC2626;--danger-l:#FEE2E2;--warn:#D97706;--warn-l:#FEF3C7;--ok:#059669;--ok-l:#D1FAE5;--info:#2563EB;--info-l:#EFF6FF;--brd:#CBD5E1;--sh:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04);--shl:0 4px 12px rgba(0,0,0,.08),0 12px 36px rgba(0,0,0,.06);--r:12px;--rs:8px;--rx:6px;--t:.2s ease}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
 
-.hdr{background:var(--primary);color:#fff;padding:0 1.5rem;height:56px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(27,67,50,.3);transition:background .5s ease}
+.hdr{background:var(--primary);color:#fff;padding:0 1.5rem;height:56px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(30,58,95,.3);transition:background .5s ease}
 .hdr.has-pending{background:#B45309;box-shadow:0 2px 12px rgba(180,83,9,.4)}
 .hdr h1{font-family:'Fraunces',serif;font-size:1.05rem;font-weight:500;display:flex;align-items:center;gap:8px}
 .hdr h1 svg{width:22px;height:22px;opacity:.85}
@@ -84,7 +90,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .dy.sel{background:var(--primary);color:#fff;font-weight:600}
 .dy.blocked{background:var(--warn-l);color:var(--warn);cursor:not-allowed;font-weight:500}
 .dy.today{box-shadow:inset 0 0 0 2px var(--primary)}
-.dy.aero:not(.sel):not(.blocked):not(.ho):not(.we){background:var(--info-l);border:1px solid rgba(36,113,163,.25)}
+.dy.aero:not(.sel):not(.blocked):not(.ho):not(.we){background:#F3E8FF;border:1px solid rgba(147,51,234,.25)}
 
 .period{background:var(--bg);border-radius:var(--rs);padding:.75rem 1rem;margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between}
 .period .info{font-size:.82rem}.period .info b{color:var(--primary)}
@@ -838,6 +844,22 @@ function stepper(active){
 // INIT
 // ============================================================
 updateBadge();render();lerExcel();
+
+// PWA: Service Worker + Badge
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(r=>console.log('SW ok')).catch(e=>console.log('SW err',e));
+}
+function updateAppBadge(n){
+  if(navigator.setAppBadge){
+    if(n>0)navigator.setAppBadge(n);else navigator.clearAppBadge();
+  }
+  if(navigator.serviceWorker&&navigator.serviceWorker.controller){
+    navigator.serviceWorker.controller.postMessage({type:'SET_BADGE',count:n});
+  }
+}
+// Atualizar badge do ícone quando há pendentes
+const _origCheck=checkPending;
+checkPending=function(){_origCheck();updateAppBadge(countPending());};
 </script>
 </body>
 </html>
