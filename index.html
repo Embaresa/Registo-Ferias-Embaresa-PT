@@ -502,6 +502,30 @@ async function gravarFalta(falta){
     try{await fetch(PA.FLOW_GRAVAR_FALTA,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){console.error('❌',e2);return false;}
   }
 }
+// Converter data do Excel (pode vir como ISO, serial number, ou dd/mm/yyyy)
+function parseExcelDate(v){
+  if(!v)return '';
+  // Já é string YYYY-MM-DD
+  if(typeof v==='string'&&/^\d{4}-\d{2}-\d{2}/.test(v))return v.split('T')[0];
+  // ISO com T
+  if(typeof v==='string'&&v.includes('T'))return v.split('T')[0];
+  // dd/mm/yyyy
+  if(typeof v==='string'&&/^\d{1,2}\/\d{1,2}\/\d{4}/.test(v)){
+    const p=v.split('/');return`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  }
+  // Número serial do Excel (dias desde 1/1/1900)
+  if(typeof v==='number'||(typeof v==='string'&&/^\d+$/.test(v))){
+    const n=Number(v);if(n>40000&&n<60000){
+      const d=new Date((n-25569)*86400000);
+      return`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    }
+  }
+  // Tentar parse genérico
+  const d=new Date(v);
+  if(!isNaN(d.getTime()))return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return '';
+}
+
 async function lerFaltas(){
   if(PA.FLOW_LER_FALTAS==='COLE_AQUI_URL_FLOW_LER_FALTAS')return;
   try{const r=await fetch(PA.FLOW_LER_FALTAS,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
@@ -512,13 +536,13 @@ async function lerFaltas(){
       FALTAS=rows.map(r=>({
         id:r.ID||('f'+Math.random().toString(36).substr(2,6)),
         nome:r.Nome,
-        dataInicio:r.DataInicio?r.DataInicio.split('T')[0]:'',
-        dataFim:r.DataFim?r.DataFim.split('T')[0]:'',
+        dataInicio:parseExcelDate(r.DataInicio),
+        dataFim:parseExcelDate(r.DataFim),
         tipo:r.Tipo||'outro',
         obs:r.Observacoes||'',
         estado:r.Tipo==='ferias'?'confirmada':'pendente',
         registadoPor:r.RegistadoPor||'sistema'
-      }));
+      })).filter(f=>f.dataInicio);
       save();
     }
   }catch(e){console.error('❌ Ler faltas:',e);}
