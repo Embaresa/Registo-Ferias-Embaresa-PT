@@ -145,8 +145,40 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:700px){.cal-months{grid-template-columns:repeat(2,1fr)}.wrap{padding:1rem}.cal-info{flex-direction:column}}
-@media(max-width:450px){.cal-months{grid-template-columns:1fr}.pin-input input{width:44px;height:52px;font-size:1.2rem}}
+@media(max-width:700px){
+  .cal-months{grid-template-columns:repeat(2,1fr)}
+  .wrap{padding:.75rem}
+  .cal-info{flex-direction:column}
+  .hdr{height:auto;flex-direction:column;padding:10px 12px;gap:8px}
+  .hdr h1{font-size:.92rem}
+  .hdr-r{flex-wrap:wrap;justify-content:center;gap:6px}
+  .hdr-r button{padding:5px 10px;font-size:.72rem}
+  .card{padding:1rem}
+  h2{font-size:1rem}
+  .btn{padding:10px 16px;font-size:.82rem}
+  .btn-row{flex-direction:column;gap:8px}
+  .btn-row>div{display:flex;gap:8px;width:100%}
+  .btn-row>div .btn{flex:1;justify-content:center}
+  .admin-tab{padding:8px 12px;font-size:.75rem}
+  .rule{padding:10px 12px;font-size:.82rem}
+  .conflict{font-size:.8rem}
+  .alert{font-size:.82rem;padding:12px 14px}
+  table{font-size:.72rem}
+}
+@media(max-width:450px){
+  .cal-months{grid-template-columns:1fr}
+  .pin-input input{width:44px;height:52px;font-size:1.2rem}
+  .hdr h1{font-size:.82rem}
+  .hdr h1 svg{width:18px;height:18px}
+  .hdr-r button{padding:4px 8px;font-size:.68rem}
+  .sync-ind{display:none}
+  .wrap{padding:.5rem}
+  .card{padding:.75rem}
+  .cal-stat{min-width:80px;padding:.5rem .75rem}
+  .cal-stat .v{font-size:1.2rem}
+  .legend{font-size:.65rem;gap:6px}
+  .legend i{width:8px;height:8px}
+}
 @media print{.hdr,.btn,.toast,.saving{display:none!important}.wrap{padding:0;max-width:100%}}
 </style>
 </head>
@@ -1450,7 +1482,7 @@ updateBadge();render();lerExcel();lerFaltas();
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
   
   const modal=document.createElement('div');
-  modal.style.cssText='background:#fff;border-radius:16px;max-width:480px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:fadeIn .3s ease';
+  modal.style.cssText='background:#fff;border-radius:16px;max-width:480px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:fadeIn .3s ease;max-height:90vh;overflow-y:auto';
   
   modal.innerHTML=`
     <div style="text-align:center;margin-bottom:20px">
