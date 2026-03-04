@@ -153,13 +153,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <body>
 
 <header class="hdr">
-  <h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Marcação de Férias
+  <h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Férias & Ausências
     <span class="sync-ind"><span class="dot off" id="syncDot"></span><span id="syncTxt">local</span></span>
     <span class="notif-badge" id="pendingBadge"></span>
   </h1>
   <div class="hdr-r">
     <div id="userBadge"></div>
     <div class="yr"><button onclick="chgY(-1)">‹</button><span id="yD">2026</span><button onclick="chgY(1)">›</button></div>
+    <button onclick="STEP='faltas';render()">📋 Faltas</button>
     <button onclick="viewAll()">👁 Mapa</button>
     <button onclick="doExport()">📥 CSV</button>
   </div>
@@ -177,6 +178,9 @@ const PA = {
   FLOW_GRAVAR: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/11c2ecfea54c42a2af07f09a22635cd1/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=VNq4VH0rO-sW7ABmRKG5G42m7eRcSW7v0vWTA-PjtcM',
   FLOW_LER: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/a2cc123adea748fa84000999219a03a5/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=dZrbEf216YeW4bTmhD7M16n94eYf9cwJ7eElmsj4eQk',
   FLOW_ATUALIZAR: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/cb29867aeb054d7e88e8ef8d5fe59db1/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=I3Fl-QJyrFcEbVaC7sWdvHB3kg7vMwpnh1NrYihFB6I',
+  FLOW_GRAVAR_FALTA: 'COLE_AQUI_URL_FLOW_GRAVAR_FALTA',
+  FLOW_LER_FALTAS: 'COLE_AQUI_URL_FLOW_LER_FALTAS',
+  FLOW_ATUALIZAR_FALTA: 'COLE_AQUI_URL_FLOW_ATUALIZAR_FALTA',
 };
 
 // ============================================================
@@ -268,10 +272,23 @@ function gH(y){
 
 // State
 let SAVED=JSON.parse(localStorage.getItem('emb_fer2')||'{}');
-// Approvals: {eid_year: 'pending'|'approved'|'rejected'}
 let APPROVALS=JSON.parse(localStorage.getItem('emb_approvals')||'{}');
+// Faltas/Ausências
+let FALTAS=JSON.parse(localStorage.getItem('emb_faltas')||'[]');
+const TIPOS_FALTA=[
+  {id:'falta_just',nm:'Falta Justificada',icon:'✅'},
+  {id:'falta_injust',nm:'Falta Injustificada',icon:'❌'},
+  {id:'baixa',nm:'Baixa Médica',icon:'🏥'},
+  {id:'assist_fam',nm:'Assistência a Familiar',icon:'👨‍👩‍👧'},
+  {id:'lic_parental',nm:'Licença Parental',icon:'👶'},
+  {id:'ferias',nm:'Férias',icon:'🏖️'},
+  {id:'outro',nm:'Outro',icon:'📝'},
+];
+function getTipoNm(id){const t=TIPOS_FALTA.find(t=>t.id===id);return t?t.nm:id;}
+function getTipoIcon(id){const t=TIPOS_FALTA.find(t=>t.id===id);return t?t.icon:'📋';}
+let FALTA_VIEW='info'; // info | mine | all | register
 
-function save(){localStorage.setItem('emb_fer2',JSON.stringify(SAVED));localStorage.setItem('emb_approvals',JSON.stringify(APPROVALS));}
+function save(){localStorage.setItem('emb_fer2',JSON.stringify(SAVED));localStorage.setItem('emb_approvals',JSON.stringify(APPROVALS));localStorage.setItem('emb_faltas',JSON.stringify(FALTAS));}
 function getEmpDays(eid,y){return SAVED[`${eid}_${y}`]||[];}
 function setEmpDays(eid,y,days){SAVED[`${eid}_${y}`]=days;save();}
 function getApproval(eid,y){return APPROVALS[`${eid}_${y}`]||'pending';}
@@ -290,6 +307,8 @@ function chgY(v){CY+=v;document.getElementById('yD').textContent=CY;SEL_DAYS=new
 
 // Conflicts
 function getConflicts(eid,dayStr){
+  // Sónia Santos (id=10) — Responsável, sem restrições
+  if(eid===10)return[];
   const emp=EMP.find(e=>e.id===eid);const conflicts=[];
   const aero=isAernnova(dayStr);
   
@@ -388,6 +407,28 @@ function checkConsec10(){
   return mx>=10;
 }
 
+// Encontrar os dias que fazem parte do bloco de 10+ consecutivos
+function getConsec10Days(days){
+  if(!days||days.length<10)return new Set();
+  const sorted=[...days].sort();
+  // Agrupar em sequências consecutivas
+  const seqs=[]; let seq=[sorted[0]];
+  for(let i=1;i<sorted.length;i++){
+    const prev=pd(sorted[i-1]),curr=pd(sorted[i]);
+    let next=new Date(prev);next.setDate(next.getDate()+1);
+    while(next<curr&&(isW(next)||isH(ds(next.getFullYear(),next.getMonth(),next.getDate()))))next.setDate(next.getDate()+1);
+    if(next.getTime()===curr.getTime()){seq.push(sorted[i]);}
+    else{seqs.push(seq);seq=[sorted[i]];}
+  }
+  seqs.push(seq);
+  // Devolver o maior bloco com 10+
+  const big=seqs.filter(s=>s.length>=10).sort((a,b)=>b.length-a.length);
+  return big.length?new Set(big[0]):new Set();
+}
+
+let IS_EDIT_MODE=false; // true quando está a alterar férias já aprovadas
+let LOCKED_DAYS=new Set(); // dias do bloco 10 consecutivos — não editáveis
+
 function getPeriods(days){
   const sorted=[...days].sort();const periods=[];let pS=null,pE=null;
   sorted.forEach(d=>{
@@ -426,11 +467,71 @@ async function lerExcel(){
     if(!r.ok){updateSync(false);return;}
     const data=await r.json();
     let rows=Array.isArray(data)?data:data.value||[];
-    if(rows.length){rows.forEach(r=>{const emp=EMP.find(e=>e.nm===r.Colaborador||e.sh===r.ColaboradorCurto);if(!emp)return;const dias=r.DiasIndividuais?r.DiasIndividuais.split(';').filter(Boolean):[];if(dias.length)SAVED[`${emp.id}_${r.Ano||CY}`]=dias;const st=r.Estado==='Aprovado'?'approved':r.Estado==='Rejeitado'?'rejected':'pending';APPROVALS[`${emp.id}_${r.Ano||CY}`]=st;});save();updateSync(true);render();}
+    if(rows.length){
+      // Agrupar por colaborador+ano — usar última entrada (mais recente)
+      const latest={};
+      rows.forEach(r=>{
+        const emp=EMP.find(e=>e.nm===r.Colaborador||e.sh===r.ColaboradorCurto);
+        if(!emp)return;
+        const key=`${emp.id}_${r.Ano||CY}`;
+        latest[key]=r; // última linha sobrescreve
+      });
+      Object.entries(latest).forEach(([key,r])=>{
+        const emp=EMP.find(e=>e.nm===r.Colaborador||e.sh===r.ColaboradorCurto);
+        if(!emp)return;
+        const dias=r.DiasIndividuais?r.DiasIndividuais.split(';').filter(Boolean):[];
+        if(dias.length)SAVED[key]=dias;
+        const st=r.Estado==='Aprovado'?'approved':r.Estado==='Rejeitado'?'rejected':'pending';
+        APPROVALS[key]=st;
+      });
+      save();updateSync(true);render();
+    }
     else updateSync(true);
   }catch(e){console.error('❌ Ler:',e);updateSync(false);}
 }
 function updateSync(ok){document.getElementById('syncDot').className='dot '+(ok?'on':'off');document.getElementById('syncTxt').textContent=ok?'Excel':'local';}
+
+// ============================================================
+// FALTAS / AUSÊNCIAS — CRUD
+// ============================================================
+async function gravarFalta(falta){
+  FALTAS.push(falta);save();
+  if(PA.FLOW_GRAVAR_FALTA==='COLE_AQUI_URL_FLOW_GRAVAR_FALTA'){console.log('⚠️ Flow faltas não configurado:',falta);return true;}
+  const payload=JSON.stringify({Nome:falta.nome,DataInicio:falta.dataInicio,DataFim:falta.dataFim,Tipo:falta.tipo,Observacoes:falta.obs||''});
+  try{const r=await fetch(PA.FLOW_GRAVAR_FALTA,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload});return r.ok;}catch(e){
+    try{await fetch(PA.FLOW_GRAVAR_FALTA,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){console.error('❌',e2);return false;}
+  }
+}
+async function lerFaltas(){
+  if(PA.FLOW_LER_FALTAS==='COLE_AQUI_URL_FLOW_LER_FALTAS')return;
+  try{const r=await fetch(PA.FLOW_LER_FALTAS,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    if(!r.ok)return;
+    const data=await r.json();
+    let rows=Array.isArray(data)?data:data.value||[];
+    if(rows.length){
+      FALTAS=rows.map(r=>({
+        id:r.ID||('f'+Math.random().toString(36).substr(2,6)),
+        nome:r.Nome,
+        dataInicio:r.DataInicio?r.DataInicio.split('T')[0]:'',
+        dataFim:r.DataFim?r.DataFim.split('T')[0]:'',
+        tipo:r.Tipo||'outro',
+        obs:r.Observacoes||'',
+        estado:r.Tipo==='ferias'?'confirmada':'pendente',
+        registadoPor:r.RegistadoPor||'sistema'
+      }));
+      save();
+    }
+  }catch(e){console.error('❌ Ler faltas:',e);}
+}
+async function atualizarFalta(falta){
+  if(PA.FLOW_ATUALIZAR_FALTA==='COLE_AQUI_URL_FLOW_ATUALIZAR_FALTA')return true;
+  const payload=JSON.stringify({Nome:falta.nome,DataInicio:falta.dataInicio,Tipo:falta.tipo,Observacoes:falta.obs||''});
+  try{const r=await fetch(PA.FLOW_ATUALIZAR_FALTA,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload});return r.ok;}catch(e){
+    try{await fetch(PA.FLOW_ATUALIZAR_FALTA,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){return false;}
+  }
+}
+function getFaltasEmp(empNm){return FALTAS.filter(f=>f.nome===empNm);}
+function countBizDays(d1,d2){let c=0,d=pd(d1);const end=pd(d2);while(d<=end){if(!isW(d))c++;d.setDate(d.getDate()+1);}return c;}
 
 function countPending(){
   return EMP.filter(e=>{const days=getEmpDays(e.id,CY);return days.length>0&&getApproval(e.id,CY)==='pending';}).length;
@@ -538,12 +639,15 @@ function render(){
   const app=document.getElementById('app');
   let ban='';
   if(CY===2026){
-    if(isPrazoExpirado())ban=`<div class="deadline-ban">🚫 <strong>Prazo expirado!</strong> Marcação de férias terminou em ${DATA_LIMITE_FMT}.</div>`;
+    const _ld=LOGGED_USER?getEmpDays(LOGGED_USER.id,CY):[];
+    if(isPrazoExpirado()&&LOGGED_USER&&_ld.length===0&&!LOGGED_USER.isAdmin)ban=`<div class="deadline-warn">⚠️ <strong>Prazo expirado!</strong> Ainda não marcaste férias — marca o mais rápido possível.</div>`;
+    else if(isPrazoExpirado())ban=`<div class="deadline-ban">🚫 <strong>Prazo expirado!</strong> Marcação de férias terminou em ${DATA_LIMITE_FMT}.</div>`;
     else if(diasRestantes()<=15)ban=`<div class="deadline-warn">⏰ Faltam <strong>${diasRestantes()} dias</strong> para o prazo (${DATA_LIMITE_FMT}).</div>`;
   }
   checkPending();
   if(STEP===-1||!LOGGED_USER){renderLogin(app);return;}
   if(STEP==='admin'){renderAdmin(app,ban);return;}
+  if(STEP==='faltas'){renderFaltas(app,ban);return;}
   switch(STEP){
     case 0:renderRules(app,ban);break;
     case 1:renderCalendar(app,ban);break;
@@ -555,12 +659,13 @@ function render(){
 // STEP 0: RULES
 // ============================================================
 function renderRules(c,ban){
-  const blocked=isPrazoExpirado()&&CY===2026&&!LOGGED_USER?.isAdmin;
   const myDays=getEmpDays(LOGGED_USER.id,CY);
   const myAppr=getApproval(LOGGED_USER.id,CY);
+  // Bloqueia só se prazo expirou E já tem dias marcados (quem não marcou ainda pode marcar)
+  const blocked=isPrazoExpirado()&&CY===2026&&!LOGGED_USER?.isAdmin&&myDays.length>0;
   let statusAlert='';
   if(myDays.length>0){
-    if(myAppr==='approved')statusAlert=`<div class="alert alert-s" style="font-size:.9rem;padding:16px 20px;margin-bottom:1.25rem">✅ <strong>As tuas férias foram aprovadas!</strong><br>${myDays.length} dias marcados para ${CY}.</div>`;
+    if(myAppr==='approved')statusAlert=`<div class="alert alert-s" style="font-size:.9rem;padding:16px 20px;margin-bottom:1.25rem">✅ <strong>As tuas férias foram aprovadas!</strong><br>${myDays.length} dias marcados para ${CY}.<br><small style="color:var(--text-m)">Podes alterar os dias pontuais — os 10 consecutivos ficam bloqueados. O pedido volta a pendente.</small></div>`;
     else if(myAppr==='rejected')statusAlert=`<div class="alert alert-e" style="font-size:.9rem;padding:16px 20px;margin-bottom:1.25rem">❌ <strong>As tuas férias foram rejeitadas.</strong><br>Contacta a responsável para mais informações.</div>`;
     else statusAlert=`<div class="alert alert-w" style="font-size:.9rem;padding:16px 20px;margin-bottom:1.25rem">⏳ <strong>As tuas férias estão a aguardar aprovação.</strong><br>${myDays.length} dias marcados. Serás notificado quando forem aprovadas.</div>`;
   }
@@ -570,7 +675,7 @@ function renderRules(c,ban){
     <p style="font-size:.85rem;color:var(--text-m);margin-bottom:1.25rem">Lê com atenção antes de marcar.</p>
     <h3>Regras Gerais</h3>
     <div class="rule"><span class="rule-icon">📅</span><div>Cada colaborador tem <b>22 dias úteis</b> de férias por ano.</div></div>
-    <div class="rule"><span class="rule-icon">🔟</span><div>Obrigatório marcar pelo menos <b>10 dias úteis consecutivos</b>.</div></div>
+    <div class="rule"><span class="rule-icon">🔟</span><div>Obrigatório marcar pelo menos <b>10 dias úteis consecutivos</b>. Os restantes dias podem ser marcados de forma pontual.</div></div>
     <div class="rule"><span class="rule-icon">🏭</span><div>Máximo <b>2 colaboradores de férias ao mesmo tempo</b> — 1 por unidade.</div></div>
     <div class="rule"><span class="rule-icon">✈️</span><div><b>1 a 16 de agosto</b> (paragem Aernnova): até <b>6 colaboradores</b> em simultâneo e máx <b>2 por grupo</b>. Equipa mínima obrigatória:</div></div>
     <div class="rule" style="padding-left:2rem"><span class="rule-icon">🔧</span><div><b>1 soldador</b> presente (Nuno, William ou Paulo)</div></div>
@@ -588,8 +693,24 @@ function renderRules(c,ban){
     <div class="rule"><span class="rule-icon">💡</span><div>Se houver conflito, a app diz-te <b>com quem deves falar</b>.</div></div>
   </div>
   <div style="text-align:right">
-    <button class="btn btn-p" ${blocked?'disabled':''} onclick="SEL_EMP=LOGGED_USER.id;SEL_DAYS=new Set(getEmpDays(LOGGED_USER.id,CY));STEP=1;render()">${myAppr==='approved'?'Ver/Alterar férias →':'Compreendi, marcar férias →'}</button>
+    <button class="btn btn-p" ${blocked?'disabled':''} onclick="enterCalendar()">${myDays.length>0?(myAppr==='approved'?'✏️ Alterar dias pontuais →':'✏️ Editar marcação →'):'Compreendi, marcar férias →'}</button>
   </div>`;
+}
+
+function enterCalendar(){
+  SEL_EMP=LOGGED_USER.id;
+  const existingDays=getEmpDays(LOGGED_USER.id,CY);
+  const appr=getApproval(LOGGED_USER.id,CY);
+  SEL_DAYS=new Set(existingDays);
+  
+  if(existingDays.length>0&&(appr==='approved'||appr==='pending')){
+    LOCKED_DAYS=getConsec10Days(existingDays);
+    IS_EDIT_MODE=LOCKED_DAYS.size>0;
+  } else {
+    LOCKED_DAYS=new Set();
+    IS_EDIT_MODE=false;
+  }
+  STEP=1;render();
 }
 
 // ============================================================
@@ -601,19 +722,20 @@ function renderCalendar(c,ban){
   const hols=new Set(gH(CY).map(h=>h.d));const now=new Date(),todS=ds(now.getFullYear(),now.getMonth(),now.getDate());
   const conflicts=getAllConflicts(SEL_EMP,[...SEL_DAYS]);
 
-  let h=`${ban}${stepper(1)}<div class="card"><h2>📅 Marcar Férias — ${emp.sh}</h2>
-    <p style="font-size:.82rem;color:var(--text-m);margin-bottom:1rem">${emp.u} · ${emp.sec}</p>
-    <div class="cal-info">
+  let h=`${ban}${stepper(1)}<div class="card"><h2>📅 ${IS_EDIT_MODE?'Alterar Dias Pontuais':'Marcar Férias'} — ${emp.sh}</h2>
+    <p style="font-size:.82rem;color:var(--text-m);margin-bottom:1rem">${emp.u} · ${emp.sec}</p>`;
+  if(IS_EDIT_MODE)h+=`<div class="alert alert-w" style="margin-bottom:1rem">✏️ <b>Modo alteração:</b> Os ${LOCKED_DAYS.size} dias consecutivos (🔒) estão bloqueados. Só podes alterar os dias pontuais.</div>`;
+  h+=`<div class="cal-info">
       <div class="cal-stat"><div class="v">${totalUsed}</div><div class="l">dias marcados</div></div>
       <div class="cal-stat"><div class="v" style="color:${remain<0?'var(--danger)':remain===0?'var(--ok)':'var(--primary)'}">${remain}</div><div class="l">dias restantes</div></div>
       <div class="cal-stat"><div class="v" style="color:${has10?'var(--ok)':'var(--warn)'}">${has10?'✓':'✗'}</div><div class="l">10 consecutivos</div></div>
     </div>`;
   if(conflicts.length)conflicts.forEach(cf=>{h+=`<div class="conflict"><div class="title">⚠️ Incompatibilidade com ${cf.emp.sh}</div><div>Dia <b>${fd(cf.day)}</b> — ${cf.rule}</div><div class="suggestion">💬 Fala com <b>${cf.emp.sh}</b> para combinarem.</div></div>`;});
   else if(totalUsed>0)h+=`<div class="alert alert-s">✅ Sem incompatibilidades.</div>`;
-  if(!has10&&totalUsed>0)h+=`<div class="alert alert-w">⚠️ Faltam 10 dias consecutivos obrigatórios.</div>`;
+  if(!has10&&totalUsed>0)h+=`<div class="alert alert-w">⚠️ É obrigatório incluir pelo menos 10 dias úteis consecutivos.</div>`;
   if(remain<0)h+=`<div class="alert alert-e">🚫 Ultrapassaste o limite! Remove ${Math.abs(remain)} dia(s).</div>`;
 
-  h+=`<div class="legend"><span><i style="background:var(--primary)"></i> Selecionado</span><span><i style="background:var(--warn-l);border:1px solid var(--warn)"></i> Conflito</span><span><i style="background:var(--danger-l);border:1px solid var(--danger)"></i> Feriado</span><span><i style="background:var(--surface-alt)"></i> Fim-de-semana</span><span><i style="background:var(--info-l);border:1px solid var(--info)"></i> Aernnova</span></div>
+  h+=`<div class="legend"><span><i style="background:var(--primary)"></i> Selecionado</span>${IS_EDIT_MODE?'<span><i style="background:var(--primary);opacity:.5;position:relative"><span style="position:absolute;top:-1px;left:2px;font-size:7px">🔒</span></i> Bloqueado (10 consec.)</span>':''}<span><i style="background:var(--warn-l);border:1px solid var(--warn)"></i> Conflito</span><span><i style="background:var(--danger-l);border:1px solid var(--danger)"></i> Feriado</span><span><i style="background:var(--surface-alt)"></i> Fim-de-semana</span><span><i style="background:#F3E8FF;border:1px solid rgba(147,51,234,.25)"></i> Aernnova</span></div>
   <p style="font-size:.75rem;color:var(--text-l);margin-bottom:1rem">Clica num dia para selecionar. Clica num dia e depois noutro para intervalo.</p><div class="cal-months">`;
   for(let m=0;m<12;m++){
     const f=new Date(CY,m,1),dm=new Date(CY,m+1,0).getDate();let sd=f.getDay();sd=sd===0?6:sd-1;
@@ -621,8 +743,10 @@ function renderCalendar(c,ban){
     for(let i=0;i<sd;i++)h+='<div class="dy ey"></div>';
     for(let d=1;d<=dm;d++){
       const dt=new Date(CY,m,d),dx=ds(CY,m,d);let cl='dy',tip='',click='';
+      const isLocked=IS_EDIT_MODE&&LOCKED_DAYS.has(dx);
       if(isW(dt))cl+=' we';
       else if(hols.has(dx)){cl+=' ho';tip=hN(dx);}
+      else if(isLocked){cl+=' sel';tip='🔒 Dia bloqueado (10 consecutivos)';click=`onclick="alert('🔒 Este dia faz parte dos 10 dias consecutivos e não pode ser alterado.')"`;} 
       else{const bl=isDayBlocked(SEL_EMP,dx),isSel=SEL_DAYS.has(dx);
         if(isSel){cl+=' sel';click=`onclick="toggleDay('${dx}')"`;}
         else if(bl){cl+=' blocked';click=`onclick="showBlocked('${dx}')"`;}
@@ -630,7 +754,7 @@ function renderCalendar(c,ban){
       }
       if(dx===todS)cl+=' today';
       if(isAernnova(dx)&&!isW(dt)&&!hols.has(dx))cl+=' aero';
-      h+=`<div class="${cl}" ${click} ${tip?`title="${tip}"`:''} >${d}</div>`;
+      h+=`<div class="${cl}" ${click} ${tip?`title="${tip}"`:''} style="${isLocked?'opacity:.6;cursor:not-allowed;':''}">${isLocked?'🔒':d}</div>`;
     }
     h+='</div></div>';
   }
@@ -639,13 +763,22 @@ function renderCalendar(c,ban){
 }
 
 function toggleDay(dx){
-  if(RANGE_START){let s=pd(RANGE_START),e=pd(dx);if(e<s){const t=s;s=e;e=t;}let d=new Date(s);while(d<=e){const x=ds(d.getFullYear(),d.getMonth(),d.getDate());if(isBiz(x)&&!isDayBlocked(SEL_EMP,x))SEL_DAYS.add(x);d.setDate(d.getDate()+1);}RANGE_START=null;}
+  // Bloquear alteração de dias dos 10 consecutivos
+  if(IS_EDIT_MODE&&LOCKED_DAYS.has(dx)){alert('🔒 Este dia faz parte dos 10 dias consecutivos e não pode ser alterado.');return;}
+  if(RANGE_START){let s=pd(RANGE_START),e=pd(dx);if(e<s){const t=s;s=e;e=t;}let d=new Date(s);while(d<=e){const x=ds(d.getFullYear(),d.getMonth(),d.getDate());if(isBiz(x)&&!isDayBlocked(SEL_EMP,x)&&!(IS_EDIT_MODE&&LOCKED_DAYS.has(x)))SEL_DAYS.add(x);d.setDate(d.getDate()+1);}RANGE_START=null;}
   else if(SEL_DAYS.has(dx))SEL_DAYS.delete(dx);
   else if(!isDayBlocked(SEL_EMP,dx)){RANGE_START=dx;SEL_DAYS.add(dx);}
   render();
 }
 function showBlocked(dx){alert(`⚠️ Dia ${fd(dx)} não disponível\n\n${getBlockedInfo(SEL_EMP,dx)}\n\nFala com o(s) colega(s) para combinarem.`);}
-function clearAll(){if(confirm('Limpar tudo?')){SEL_DAYS=new Set();RANGE_START=null;render();}}
+function clearAll(){
+  if(IS_EDIT_MODE){
+    if(!confirm('Limpar dias pontuais? Os 10 consecutivos mantêm-se.'))return;
+    SEL_DAYS=new Set(LOCKED_DAYS);RANGE_START=null;render();
+  } else {
+    if(confirm('Limpar tudo?')){SEL_DAYS=new Set();RANGE_START=null;render();}
+  }
+}
 
 // ============================================================
 // STEP 2: SUMMARY + SAVE
@@ -657,30 +790,47 @@ function renderSummary(c,ban){
   let h=`${ban}${stepper(2)}<div class="card"><h2>📝 Resumo — ${emp.sh}</h2>
     <p style="font-size:.82rem;color:var(--text-m);margin-bottom:1.25rem">${emp.u} · ${emp.sec}</p>`;
   if(conflicts.length){h+=`<div class="alert alert-e">🚫 ${conflicts.length} incompatibilidade(s). Volta atrás!</div>`;conflicts.forEach(cf=>{h+=`<div class="conflict"><div class="title">⚠️ ${cf.emp.sh}</div><div>Dia ${fd(cf.day)} — ${cf.rule}</div></div>`;});}
-  if(!has10)h+=`<div class="alert alert-w">⚠️ Faltam 10 dias consecutivos!</div>`;
+  if(!has10)h+=`<div class="alert alert-e">⚠️ É obrigatório incluir pelo menos 10 dias úteis consecutivos!</div>`;
 
   h+=`<div class="summary-row"><span>Total dias marcados</span><b>${days.length} / ${emp.d}</b></div>
     <div class="summary-row"><span>10 dias consecutivos</span><b style="color:${has10?'var(--ok)':'var(--danger)'}">${has10?'✓ Sim':'✗ Não'}</b></div>
+    <div class="summary-row"><span>Dias pontuais</span><b>${has10?Math.max(0,days.length-10)+' dias':'—'}</b></div>
     <div class="summary-row"><span>Incompatibilidades</span><b style="color:${conflicts.length?'var(--danger)':'var(--ok)'}">${conflicts.length||'✓ Nenhuma'}</b></div>`;
 
   h+=`<h3 style="margin-top:1.25rem;margin-bottom:.75rem">Períodos</h3>`;
   periods.forEach(p=>{const cnt=days.filter(d=>d>=p.s&&d<=p.e).length;h+=`<div class="period"><div class="info"><b>${fd(p.s)}</b> a <b>${fd(p.e)}</b> — ${cnt} dia(s)</div></div>`;});
 
   h+=`</div><div class="btn-row"><button class="btn btn-s" onclick="STEP=1;render()">← Ajustar</button>
-    <button class="btn btn-p" ${!conflicts.length&&has10&&days.length<=emp.d?'':'disabled'} onclick="doSave()">✓ Confirmar Marcação</button></div>`;
+    <button class="btn btn-p" ${!conflicts.length&&has10&&days.length>0&&days.length<=emp.d?'':'disabled'} onclick="doSave()">✓ Confirmar Marcação</button></div>`;
   c.innerHTML=h;
 }
 
 async function doSave(){
   const emp=EMP.find(e=>e.id===SEL_EMP);const days=[...SEL_DAYS].sort();
+  const existingDays=getEmpDays(SEL_EMP,CY);
+  const isUpdate=existingDays.length>0;
+  
+  if(isUpdate&&!confirm('Tens férias já submetidas/aprovadas.\n\nAo alterar, o pedido volta a PENDENTE e precisa de nova aprovação.\n\nConfirmar alteração?'))return;
+  
   document.getElementById('saving').classList.add('show');
-  document.getElementById('savingTxt').textContent='A gravar marcação...';
+  document.getElementById('savingTxt').textContent=isUpdate?'A atualizar marcação...':'A gravar marcação...';
   setEmpDays(SEL_EMP,CY,days);
   setApproval(SEL_EMP,CY,'pending');
-  const excelOk=await gravarExcel(emp,days,'Pendente');
+  
+  let excelOk;
+  if(isUpdate){
+    // Atualizar estado para pendente e regravar
+    excelOk=await atualizarExcel(emp,'Pendente');
+    // Também gravar os novos dias
+    const sorted=days;
+    const payload={Colaborador:emp.nm,ColaboradorCurto:emp.sh,Unidade:emp.u,Seccao:emp.sec,Ano:CY,TotalDias:sorted.length,Estado:'Pendente',DataSubmissao:new Date().toISOString(),DiasIndividuais:sorted.join(';'),PeriodoInicio:sorted[0]||'',PeriodoFim:sorted[sorted.length-1]||''};
+    try{await fetch(PA.FLOW_GRAVAR,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:JSON.stringify(payload)});}catch(e){try{await fetch(PA.FLOW_GRAVAR,{method:'POST',body:JSON.stringify(payload),mode:'no-cors'});}catch(e2){}}
+  }else{
+    excelOk=await gravarExcel(emp,days,'Pendente');
+  }
   document.getElementById('saving').classList.remove('show');
 
-  showToast(`<b>✅ Marcação submetida!</b>${emp.sh} — ${days.length} dias<br>${fdF(days[0])} a ${fdF(days[days.length-1])}<br><br>⏳ <strong>A aguardar aprovação da responsável.</strong>${excelOk?'<br><small>✓ Registado no Excel</small>':''}`,'ok',8000);
+  showToast(`<b>✅ ${isUpdate?'Alteração submetida!':'Marcação submetida!'}</b>${emp.sh} — ${days.length} dias<br>${fdF(days[0])} a ${fdF(days[days.length-1])}<br><br>⏳ <strong>A aguardar aprovação da responsável.</strong>${excelOk?'<br><small>✓ Registado no Excel</small>':''}`,'ok',8000);
   STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();updateBadge();
   setTimeout(()=>render(),500);
 }
@@ -765,8 +915,11 @@ async function approveReq(eid){
   const emp=EMP.find(e=>e.id===eid);
   if(!confirm(`Aprovar férias de ${emp.sh}?`))return;
   setApproval(eid,CY,'approved');
-  atualizarExcel(emp,'Aprovado');
-  showToast(`✅ Férias de <b>${emp.sh}</b> aprovadas!`,'ok');
+  document.getElementById('saving').classList.add('show');
+  document.getElementById('savingTxt').textContent='A aprovar...';
+  const ok=await atualizarExcel(emp,'Aprovado');
+  document.getElementById('saving').classList.remove('show');
+  showToast(`✅ Férias de <b>${emp.sh}</b> aprovadas!${ok?'<br><small>✓ Excel atualizado</small>':'<br><small>⚠️ Excel não atualizado</small>'}`,'ok');
   render();
 }
 
@@ -775,8 +928,11 @@ async function rejectReq(eid){
   const motivo=prompt(`Motivo da rejeição para ${emp.sh}:`);
   if(motivo===null)return;
   setApproval(eid,CY,'rejected');
-  atualizarExcel(emp,'Rejeitado');
-  showToast(`❌ Férias de <b>${emp.sh}</b> rejeitadas.`,'e');
+  document.getElementById('saving').classList.add('show');
+  document.getElementById('savingTxt').textContent='A rejeitar...';
+  const ok=await atualizarExcel(emp,'Rejeitado');
+  document.getElementById('saving').classList.remove('show');
+  showToast(`❌ Férias de <b>${emp.sh}</b> rejeitadas.${ok?'<br><small>✓ Excel atualizado</small>':'<br><small>⚠️ Excel não atualizado</small>'}`,'e');
   render();
 }
 
@@ -792,9 +948,22 @@ function resetReq(eid){
 function viewAll(){
   STEP='map';
   const app=document.getElementById('app');const hols=new Set(gH(CY).map(h=>h.d));
-  let h=`<div style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center">
-    <h2 style="font-family:'Fraunces',serif;font-size:1.2rem">Mapa de Férias ${CY}</h2>
-    <button class="btn btn-s" onclick="${LOGGED_USER?.isAdmin?"STEP='admin'":"STEP=-1;LOGGED_USER=null;updateBadge()"};render()">← Voltar</button></div>`;
+  let h=`<div style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h2 style="font-family:'Fraunces',serif;font-size:1.2rem">Mapa de Férias e Ausências ${CY}</h2>
+    <div style="display:flex;gap:8px"><button class="btn btn-s" onclick="gerarRelatorio()">🖨️ Relatório</button>
+    <button class="btn btn-s" onclick="${LOGGED_USER?.isAdmin?"STEP='admin'":"STEP=-1;LOGGED_USER=null;updateBadge()"};render()">← Voltar</button></div></div>`;
+  
+  // Legenda
+  h+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;font-size:.72rem;align-items:center">
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--primary);vertical-align:middle"></i> Férias aprovadas</span>
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--warn);vertical-align:middle"></i> Férias pendentes</span>
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#7C3AED;vertical-align:middle"></i> Falta justificada</span>
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#DC2626;vertical-align:middle"></i> Falta injustificada</span>
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#0891B2;vertical-align:middle"></i> Baixa/Licença</span>
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--danger-l);vertical-align:middle;border:1px solid var(--danger)"></i> Feriado</span>
+    <span><i style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--surface-alt);vertical-align:middle"></i> Fim-de-semana</span>
+  </div>`;
+  
   const mo=new Date().getMonth();
   h+=`<div style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap">`;
   for(let m=0;m<12;m++)h+=`<button class="btn btn-s" style="padding:5px 10px;font-size:.72rem${m===mo?';background:var(--primary);color:#fff;border-color:var(--primary)':''}" onclick="scrollToMonth(${m})">${MO[m].substring(0,3)}</button>`;
@@ -803,18 +972,36 @@ function viewAll(){
     const dm=new Date(CY,m+1,0).getDate();
     h+=`<div class="card" id="month-${m}" style="padding:1rem;margin-bottom:.75rem"><h3 style="font-size:.8rem;margin-bottom:.6rem">${MO[m]}</h3><div style="overflow-x:auto"><table style="font-size:.68rem"><thead><tr><th style="padding:4px 8px;min-width:120px">Colaborador</th>`;
     for(let d=1;d<=dm;d++){const dt=new Date(CY,m,d);h+=`<th style="padding:4px 2px;text-align:center;min-width:22px;${isW(dt)?'background:var(--surface-alt);color:var(--text-l)':''}">${d}</th>`;}
-    h+=`</tr></thead><tbody>`;
+    h+=`<th style="padding:4px 6px;text-align:center;min-width:30px">Tot</th></tr></thead><tbody>`;
     ['Évora 1','Évora 2'].forEach(u=>{
-      h+=`<tr><td colspan="${dm+1}" style="padding:3px 8px;background:var(--bg);font-weight:700;font-size:.65rem;color:var(--primary)">${u}</td></tr>`;
+      h+=`<tr><td colspan="${dm+2}" style="padding:3px 8px;background:var(--bg);font-weight:700;font-size:.65rem;color:var(--primary)">${u}</td></tr>`;
       EMP.filter(e=>e.u===u).forEach(emp=>{
         const empDays=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
+        const empFaltas=getFaltasEmp(emp.nm);
+        let ferCount=0,faltaCount=0;
         h+=`<tr><td style="padding:4px 8px;font-size:.7rem">${emp.sh} ${appr==='approved'?'✅':appr==='rejected'?'❌':empDays.length?'⏳':''}</td>`;
         for(let d=1;d<=dm;d++){
-          const dt=new Date(CY,m,d),dx=ds(CY,m,d);let bg='',txt='';
-          if(isW(dt))bg='var(--surface-alt)';else if(hols.has(dx)){bg='var(--danger-l)';txt='F';}
-          else if(empDays.includes(dx)){bg=appr==='approved'?'var(--primary)':appr==='rejected'?'var(--danger)':'var(--warn)';txt='●';}
-          h+=`<td style="padding:2px;text-align:center;background:${bg||'transparent'};color:${['var(--primary)','var(--danger)','var(--warn)'].includes(bg)?'#fff':'var(--text-l)'};font-size:.6rem">${txt}</td>`;
+          const dt=new Date(CY,m,d),dx=ds(CY,m,d);let bg='',txt='',title='';
+          if(isW(dt)){bg='var(--surface-alt)';}
+          else if(hols.has(dx)){bg='var(--danger-l)';txt='F';}
+          else if(empDays.includes(dx)){bg=appr==='approved'?'var(--primary)':appr==='rejected'?'var(--danger)':'var(--warn)';txt='●';ferCount++;}
+          else{
+            // Verificar faltas
+            const falta=empFaltas.find(f=>dx>=f.dataInicio&&dx<=f.dataFim&&!isW(pd(dx)));
+            if(falta){
+              faltaCount++;
+              if(falta.tipo==='falta_just')          {bg='#7C3AED';txt='J';title=falta.obs||'Falta justificada';}
+              else if(falta.tipo==='falta_injust')    {bg='#DC2626';txt='I';title='Falta injustificada';}
+              else if(falta.tipo==='baixa')           {bg='#0891B2';txt='B';title='Baixa médica';}
+              else if(falta.tipo==='assist_fam')      {bg='#0891B2';txt='A';title='Assistência a familiar';}
+              else if(falta.tipo==='lic_parental')    {bg='#0891B2';txt='L';title='Licença parental';}
+              else if(falta.tipo==='ferias')          {bg='var(--primary)';txt='●';title='Férias (anterior)';ferCount++;}
+              else                                    {bg='#6B7280';txt='O';title=falta.obs||'Outro';}
+            }
+          }
+          h+=`<td style="padding:2px;text-align:center;background:${bg||'transparent'};color:${bg&&bg!=='var(--surface-alt)'&&bg!=='var(--danger-l)'?'#fff':'var(--text-l)'};font-size:.6rem;cursor:default" ${title?`title="${title}"`:''} >${txt}</td>`;
         }
+        h+=`<td style="padding:2px 4px;text-align:center;font-size:.65rem;font-weight:600">${ferCount||''}</td>`;
         h+=`</tr>`;
       });
     });
@@ -824,6 +1011,389 @@ function viewAll(){
   setTimeout(()=>{const el=document.getElementById(`month-${mo}`);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},100);
 }
 function scrollToMonth(m){const el=document.getElementById(`month-${m}`);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
+
+function gerarRelatorio(){
+  const hols=new Set(gH(CY).map(h=>h.d));
+  const holList=gH(CY);
+  const trimNomes=['1º Trimestre (Janeiro – Março)','2º Trimestre (Abril – Junho)','3º Trimestre (Julho – Setembro)','4º Trimestre (Outubro – Dezembro)'];
+  
+  let html=`<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8">
+<title>Mapa de Férias ${CY} — Embaresa PT</title>
+<style>
+@page{size:A4 landscape;margin:8mm}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;color:#1a1a1a}
+.page{page-break-after:always}
+.page:last-of-type{page-break-after:avoid}
+.header{text-align:center;margin-bottom:6px;padding-bottom:5px;border-bottom:3px solid #1E3A5F}
+.header h1{font-size:15pt;color:#1E3A5F;margin-bottom:2px}
+.header p{font-size:9pt;color:#666}
+.legenda{display:flex;gap:12px;justify-content:center;margin:5px 0 6px;font-size:7.5pt;flex-wrap:wrap}
+.legenda span{display:flex;align-items:center;gap:3px}
+.legenda i{display:inline-block;width:12px;height:12px;border-radius:2px}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #bbb;padding:3px 2px;text-align:center;font-size:8pt}
+th{background:#1E3A5F;color:#fff;font-weight:600;font-size:8.5pt}
+th.day-hdr{min-width:22px;width:22px}
+th.name-hdr{text-align:left;padding-left:8px;min-width:120px;font-size:8.5pt}
+td.name{text-align:left;padding-left:8px;font-size:8.5pt;white-space:nowrap;font-weight:500}
+td.unit{background:#EFF3F8;font-weight:700;text-align:left;padding-left:8px;font-size:8pt;color:#1E3A5F}
+.we{background:#F1F5F9}
+.hol{background:#FEE2E2;color:#DC2626;font-weight:700}
+.fer{background:#1E3A5F;color:#fff;font-weight:700}
+.fer-p{background:#D97706;color:#fff;font-weight:700}
+.fj{background:#7C3AED;color:#fff;font-weight:700}
+.fi{background:#DC2626;color:#fff;font-weight:700}
+.bl{background:#0891B2;color:#fff;font-weight:700}
+.out{background:#6B7280;color:#fff;font-weight:700}
+td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
+.resumo h2{font-size:14pt;color:#1E3A5F;margin-bottom:8px;border-bottom:2px solid #1E3A5F;padding-bottom:4px}
+.resumo table{font-size:9pt}
+.resumo th{font-size:9.5pt;padding:6px 10px}
+.resumo td{padding:5px 10px;font-size:9pt}
+.footer{margin-top:10px;padding-top:5px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:7.5pt;color:#999}
+.assinatura{margin-top:25px;display:flex;gap:50px;justify-content:center}
+.assinatura div{text-align:center;min-width:200px}
+.assinatura .linha{border-top:1px solid #333;margin-top:45px;padding-top:4px;font-size:8pt}
+</style></head><body>`;
+
+  // 4 trimestres — 1 por página
+  for(let trim=0;trim<4;trim++){
+    const mStart=trim*3,mEnd=mStart+3;
+    html+=`<div class="page">
+    <div class="header"><h1>Mapa de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora · ${trimNomes[trim]}</p></div>
+    <div class="legenda">
+      <span><i style="background:#1E3A5F"></i> Férias</span>
+      <span><i style="background:#D97706"></i> Pendente</span>
+      <span><i style="background:#7C3AED"></i> Falta just.</span>
+      <span><i style="background:#DC2626"></i> Falta injust.</span>
+      <span><i style="background:#0891B2"></i> Baixa/Lic.</span>
+      <span><i style="background:#6B7280"></i> Outro</span>
+      <span><i style="background:#FEE2E2;border:1px solid #DC2626"></i> Feriado</span>
+      <span><i style="background:#F1F5F9"></i> Fim-semana</span>
+    </div>`;
+    html+=`<table><thead><tr><th class="name-hdr" rowspan="2">Colaborador</th>`;
+    for(let m=mStart;m<mEnd;m++){
+      const dm=new Date(CY,m+1,0).getDate();
+      html+=`<th colspan="${dm}" style="border-bottom:none">${MO[m]}</th>`;
+    }
+    html+=`<th rowspan="2" style="min-width:28px">Tot</th></tr><tr>`;
+    for(let m=mStart;m<mEnd;m++){
+      const dm=new Date(CY,m+1,0).getDate();
+      for(let d=1;d<=dm;d++){
+        const dt=new Date(CY,m,d);
+        html+=`<th class="day-hdr${isW(dt)?' we':''}">${d}</th>`;
+      }
+    }
+    html+=`</tr></thead><tbody>`;
+    
+    ['Évora 1','Évora 2'].forEach(u=>{
+      let totalDays=0;for(let m=mStart;m<mEnd;m++)totalDays+=new Date(CY,m+1,0).getDate();
+      html+=`<tr><td class="unit" colspan="${totalDays+2}">${u}</td></tr>`;
+      EMP.filter(e=>e.u===u).forEach(emp=>{
+        const empDays=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
+        const empFaltas=getFaltasEmp(emp.nm);let trimFerCount=0;
+        html+=`<tr><td class="name">${emp.sh}</td>`;
+        for(let m=mStart;m<mEnd;m++){
+          const dm=new Date(CY,m+1,0).getDate();
+          for(let d=1;d<=dm;d++){
+            const dt=new Date(CY,m,d),dx=ds(CY,m,d);let cl='',txt='';
+            if(isW(dt)){cl='we';}
+            else if(hols.has(dx)){cl='hol';txt='F';}
+            else if(empDays.includes(dx)){cl=appr==='approved'?'fer':'fer-p';txt='●';trimFerCount++;}
+            else{
+              const falta=empFaltas.find(f=>dx>=f.dataInicio&&dx<=f.dataFim&&!isW(pd(dx)));
+              if(falta){
+                if(falta.tipo==='falta_just'){cl='fj';txt='J';}
+                else if(falta.tipo==='falta_injust'){cl='fi';txt='I';}
+                else if(falta.tipo==='baixa'||falta.tipo==='assist_fam'||falta.tipo==='lic_parental'){cl='bl';txt=falta.tipo==='baixa'?'B':falta.tipo==='assist_fam'?'A':'L';}
+                else if(falta.tipo==='ferias'){cl='fer';txt='●';trimFerCount++;}
+                else{cl='out';txt='O';}
+              }
+            }
+            html+=`<td class="${cl}">${txt}</td>`;
+          }
+        }
+        html+=`<td class="tot">${trimFerCount||''}</td></tr>`;
+      });
+    });
+    html+=`</tbody></table>`;
+    html+=`<div class="footer"><span>${trimNomes[trim]}</span><span>Embaresa PT — Évora</span></div>`;
+    html+=`</div>`;
+  }
+
+  // Página 5: Resumo
+  html+=`<div class="page resumo">
+  <div class="header"><h1>Resumo Anual de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora</p></div>
+  <table><thead><tr>
+    <th style="text-align:left">Colaborador</th><th>Unidade</th><th>Secção</th><th>Dias Férias</th><th>Estado</th><th>Faltas Just.</th><th>Faltas Inj.</th><th>Baixas</th><th>Total Ausências</th>
+  </tr></thead><tbody>`;
+  EMP.forEach(emp=>{
+    const empDays=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
+    const empFaltas=getFaltasEmp(emp.nm);
+    const fj=empFaltas.filter(f=>f.tipo==='falta_just').length;
+    const fi=empFaltas.filter(f=>f.tipo==='falta_injust').length;
+    const bl=empFaltas.filter(f=>['baixa','assist_fam','lic_parental'].includes(f.tipo)).length;
+    const stTxt=appr==='approved'?'Aprovado':appr==='rejected'?'Rejeitado':empDays.length?'Pendente':'—';
+    html+=`<tr><td style="text-align:left;padding-left:10px;font-weight:500">${emp.sh}</td><td>${emp.u}</td><td>${emp.sec}</td>
+      <td style="font-weight:600">${empDays.length}/${emp.d}</td><td>${stTxt}</td><td>${fj||'—'}</td><td>${fi||'—'}</td><td>${bl||'—'}</td>
+      <td style="font-weight:700">${empDays.length+fj+fi+bl}</td></tr>`;
+  });
+  html+=`</tbody></table>`;
+
+  // Feriados
+  html+=`<div style="margin-top:12px"><h3 style="font-size:10pt;color:#1E3A5F;margin-bottom:6px">Feriados Nacionais ${CY}</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:8pt">`;
+  holList.forEach(h2=>{html+=`<span style="background:#FEE2E2;padding:3px 8px;border-radius:4px">${fdF(h2.d)} — ${h2.n}</span>`;});
+  html+=`</div></div>`;
+
+  // Assinaturas
+  html+=`<div class="assinatura">
+    <div><div class="linha">Responsável de Produção<br>Sónia Santos</div></div>
+    <div><div class="linha">Direção</div></div>
+  </div>`;
+
+  html+=`<div class="footer"><span>Gerado em ${new Date().toLocaleDateString('pt-PT')} às ${new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})}</span><span>Embaresa PT — Évora</span></div>`;
+  html+=`</div></body></html>`;
+  
+  const w=window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
+}
+
+// ============================================================
+// FALTAS — RENDER
+// ============================================================
+function renderFaltas(c,ban){
+  if(!LOGGED_USER){renderLogin(c);return;}
+  const isAdmin=LOGGED_USER.isAdmin;
+  const emp=EMP.find(e=>e.id===LOGGED_USER.id);
+  
+  // Ecrã de explicação (primeira vez que abre)
+  if(FALTA_VIEW==='info'){
+    let h=`${ban}<div class="card">
+      <h2>📋 Registo de Ausências e Faltas</h2>
+      <p style="font-size:.85rem;color:var(--text-m);margin-bottom:1.25rem">Lê com atenção as regras de registo de ausências.</p>
+      
+      <h3>Como funciona</h3>
+      <div class="rule"><span class="rule-icon">📝</span><div>Podes <b>registar uma ausência</b> (falta, baixa ou outra) diretamente na app.</div></div>
+      <div class="rule"><span class="rule-icon">👁</span><div>Consulta as tuas <b>ausências registadas</b> e o respetivo estado.</div></div>
+      <div class="rule"><span class="rule-icon">✅</span><div>Cada ausência registada por ti fica <b>pendente</b> até ser confirmada pela responsável.</div></div>
+      <div class="rule"><span class="rule-icon">💬</span><div>Se a falta for <b>injustificada</b>, podes adicionar uma <b>justificação</b> a qualquer momento.</div></div>
+      
+      <h3 style="margin-top:1.25rem">Tipos de Ausência</h3>
+      <div class="rule"><span class="rule-icon">✅</span><div><b>Falta Justificada</b> — Ausência com motivo válido (consulta médica, tribunal, etc.)</div></div>
+      <div class="rule"><span class="rule-icon">❌</span><div><b>Falta Injustificada</b> — Ausência sem justificação prévia. Podes justificar depois.</div></div>
+      <div class="rule"><span class="rule-icon">🏥</span><div><b>Baixa Médica</b> — Atestado médico / incapacidade temporária.</div></div>
+      <div class="rule"><span class="rule-icon">👨‍👩‍👧</span><div><b>Assistência a Familiar</b> — Acompanhamento de familiar doente ou dependente.</div></div>
+      <div class="rule"><span class="rule-icon">👶</span><div><b>Licença Parental</b> — Licença de maternidade / paternidade.</div></div>
+      <div class="rule"><span class="rule-icon">📝</span><div><b>Outro</b> — Outro motivo (especificar nas observações).</div></div>
+      
+      ${isAdmin?`<h3 style="margin-top:1.25rem">Administração</h3>
+      <div class="rule"><span class="rule-icon">🔑</span><div>Como responsável, podes <b>registar faltas</b> para qualquer colaborador.</div></div>
+      <div class="rule"><span class="rule-icon">✅</span><div>Podes <b>confirmar</b> ou <b>rejeitar</b> ausências registadas pelos colaboradores.</div></div>
+      <div class="rule"><span class="rule-icon">👁</span><div>As ausências aparecem no <b>mapa</b> e no <b>relatório</b> para impressão.</div></div>`:''}
+    </div>
+    <div style="text-align:right;margin-top:1rem">
+      <button class="btn btn-p" onclick="FALTA_VIEW='mine';render()">Compreendi, continuar →</button>
+    </div>`;
+    c.innerHTML=h;
+    return;
+  }
+  
+  let h=`${ban}<div class="card"><h2>📋 Ausências e Faltas</h2>
+    <p style="font-size:.82rem;color:var(--text-m);margin-bottom:1rem">${isAdmin?'Gestão de todas as ausências':'As tuas ausências — '+emp.sh}</p>
+    <div style="display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap">
+      <button class="admin-tab${FALTA_VIEW==='info'?' ac':''}" onclick="FALTA_VIEW='info';render()">ℹ️ Regras</button>
+      <button class="admin-tab${FALTA_VIEW==='mine'?' ac':''}" onclick="FALTA_VIEW='mine';render()">📋 ${isAdmin?'Por colaborador':'As minhas'}</button>
+      ${isAdmin?`<button class="admin-tab${FALTA_VIEW==='all'?' ac':''}" onclick="FALTA_VIEW='all';render()">📊 Todas</button>`:''}
+      <button class="admin-tab${FALTA_VIEW==='register'?' ac':''}" onclick="FALTA_VIEW='register';render()">➕ Registar</button>
+    </div>`;
+  
+  if(FALTA_VIEW==='register'){
+    h+=renderFaltaForm(isAdmin);
+  } else if(FALTA_VIEW==='all'&&isAdmin){
+    h+=renderFaltasAll();
+  } else {
+    h+=renderFaltasMine(isAdmin?null:emp);
+  }
+  
+  h+=`</div><div style="text-align:left;margin-top:1rem">
+    <button class="btn btn-s" onclick="STEP=${LOGGED_USER.isAdmin?"'admin'":0};FALTA_VIEW='info';render()">← Voltar</button></div>`;
+  c.innerHTML=h;
+}
+
+function renderFaltaForm(isAdmin){
+  let h=`<div class="card" style="background:var(--surface-alt);margin:0">
+    <h3 style="margin-bottom:1rem">➕ Registar Ausência</h3>`;
+  
+  if(isAdmin){
+    h+=`<label style="font-size:.82rem;font-weight:600;display:block;margin-bottom:4px">Colaborador</label>
+    <select id="faltaEmp" style="width:100%;padding:10px;border:1px solid var(--brd);border-radius:var(--rx);margin-bottom:12px;font-family:inherit;font-size:.88rem">`;
+    EMP.forEach(e=>{h+=`<option value="${e.id}">${e.sh} — ${e.u}</option>`;});
+    h+=`</select>`;
+  }
+  
+  h+=`<label style="font-size:.82rem;font-weight:600;display:block;margin-bottom:4px">Tipo de Ausência</label>
+    <select id="faltaTipo" style="width:100%;padding:10px;border:1px solid var(--brd);border-radius:var(--rx);margin-bottom:12px;font-family:inherit;font-size:.88rem">
+      ${TIPOS_FALTA.filter(t=>t.id!=='ferias').map(t=>`<option value="${t.id}">${t.icon} ${t.nm}</option>`).join('')}
+    </select>
+    <div style="display:flex;gap:12px;margin-bottom:12px">
+      <div style="flex:1"><label style="font-size:.82rem;font-weight:600;display:block;margin-bottom:4px">Data Início</label>
+        <input type="date" id="faltaDI" style="width:100%;padding:10px;border:1px solid var(--brd);border-radius:var(--rx);font-family:inherit;font-size:.88rem"></div>
+      <div style="flex:1"><label style="font-size:.82rem;font-weight:600;display:block;margin-bottom:4px">Data Fim</label>
+        <input type="date" id="faltaDF" style="width:100%;padding:10px;border:1px solid var(--brd);border-radius:var(--rx);font-family:inherit;font-size:.88rem"></div>
+    </div>
+    <label style="font-size:.82rem;font-weight:600;display:block;margin-bottom:4px">Observações</label>
+    <textarea id="faltaObs" rows="2" placeholder="Motivo, justificação..." style="width:100%;padding:10px;border:1px solid var(--brd);border-radius:var(--rx);font-family:inherit;font-size:.85rem;resize:vertical;margin-bottom:12px"></textarea>
+    <button class="btn btn-p" style="width:100%;justify-content:center" onclick="submitFalta(${isAdmin})">✓ Registar Ausência</button>
+  </div>`;
+  return h;
+}
+
+async function submitFalta(isAdmin){
+  const empId=isAdmin?parseInt(document.getElementById('faltaEmp').value):LOGGED_USER.id;
+  const empObj=EMP.find(e=>e.id===empId);
+  const tipo=document.getElementById('faltaTipo').value;
+  const di=document.getElementById('faltaDI').value;
+  const df=document.getElementById('faltaDF').value||di;
+  const obs=document.getElementById('faltaObs').value;
+  
+  if(!di){alert('Seleciona a data de início.');return;}
+  
+  const falta={
+    id:'f'+Date.now(),
+    nome:empObj.nm,
+    nomeCurto:empObj.sh,
+    dataInicio:di,
+    dataFim:df,
+    tipo:tipo,
+    obs:obs,
+    estado:isAdmin?'confirmada':'pendente',
+    registadoPor:isAdmin?'admin':empObj.sh,
+    dataRegisto:new Date().toISOString()
+  };
+  
+  document.getElementById('saving').classList.add('show');
+  document.getElementById('savingTxt').textContent='A registar ausência...';
+  await gravarFalta(falta);
+  document.getElementById('saving').classList.remove('show');
+  
+  const dias=countBizDays(di,df);
+  showToast(`<b>✅ Ausência registada!</b><br>${empObj.sh} — ${getTipoNm(tipo)}<br>${fdF(di)}${di!==df?' a '+fdF(df):''} (${dias} dia${dias>1?'s':''})`,'ok',5000);
+  FALTA_VIEW='mine';render();
+}
+
+function renderFaltasMine(emp){
+  const isAdmin=LOGGED_USER.isAdmin;
+  let h='';
+  
+  if(isAdmin){
+    // Admin vê por colaborador
+    EMP.forEach(e=>{
+      const faltas=getFaltasEmp(e.nm);
+      if(!faltas.length)return;
+      h+=`<div style="margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--brd)">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:8px">${e.sh} <span style="color:var(--text-l);font-weight:400">· ${e.u} · ${e.sec}</span></div>`;
+      faltas.forEach(f=>{h+=renderFaltaCard(f,true);});
+      h+=`</div>`;
+    });
+    if(!h)h=`<p style="color:var(--text-l);text-align:center;padding:2rem">Sem ausências registadas.</p>`;
+  } else {
+    // Colaborador vê as suas
+    const faltas=getFaltasEmp(emp.nm);
+    if(faltas.length){
+      faltas.forEach(f=>{h+=renderFaltaCard(f,false);});
+    } else {
+      h=`<p style="color:var(--text-l);text-align:center;padding:2rem">Não tens ausências registadas.</p>`;
+    }
+  }
+  return h;
+}
+
+function renderFaltaCard(f,isAdmin){
+  const dias=countBizDays(f.dataInicio,f.dataFim);
+  const stCl=f.estado==='confirmada'?'var(--ok)':f.estado==='rejeitada'?'var(--danger)':'var(--warn)';
+  const stTxt=f.estado==='confirmada'?'✅ Confirmada':f.estado==='rejeitada'?'❌ Rejeitada':'⏳ Pendente';
+  
+  let h=`<div style="background:var(--surface);border:1px solid var(--brd);border-radius:var(--rs);padding:12px 16px;margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="font-weight:600;font-size:.85rem">${getTipoIcon(f.tipo)} ${getTipoNm(f.tipo)}</span>
+      <span style="font-size:.75rem;font-weight:600;color:${stCl}">${stTxt}</span>
+    </div>
+    <div style="font-size:.8rem;color:var(--text-m)">${fdF(f.dataInicio)}${f.dataInicio!==f.dataFim?' a '+fdF(f.dataFim):''} — ${dias} dia${dias>1?'s':''} útil/úteis</div>`;
+  if(f.obs)h+=`<div style="font-size:.78rem;color:var(--text-m);margin-top:4px;font-style:italic">📝 ${f.obs}</div>`;
+  if(f.registadoPor)h+=`<div style="font-size:.72rem;color:var(--text-l);margin-top:4px">Registado por: ${f.registadoPor}</div>`;
+  
+  if(isAdmin&&f.estado==='pendente'){
+    h+=`<div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-p" style="padding:4px 12px;font-size:.75rem" onclick="decideFalta('${f.id}','confirmada')">✅ Confirmar</button>
+      <button class="btn btn-s" style="padding:4px 12px;font-size:.75rem;border-color:var(--danger);color:var(--danger)" onclick="decideFalta('${f.id}','rejeitada')">❌ Rejeitar</button>
+    </div>`;
+  }
+  
+  // Colaborador pode justificar falta pendente injustificada
+  if(!isAdmin&&f.estado==='pendente'&&(f.tipo==='falta_injust'||!f.obs)){
+    h+=`<div style="margin-top:8px">
+      <input type="text" id="just_${f.id}" placeholder="Adicionar justificação..." style="width:calc(100% - 90px);padding:6px 10px;border:1px solid var(--brd);border-radius:var(--rx);font-size:.8rem;font-family:inherit">
+      <button class="btn btn-p" style="padding:4px 10px;font-size:.75rem;margin-left:4px" onclick="justificarFalta('${f.id}')">Enviar</button>
+    </div>`;
+  }
+  
+  h+=`</div>`;
+  return h;
+}
+
+function decideFalta(fid,estado){
+  const f=FALTAS.find(x=>x.id===fid);
+  if(!f)return;
+  f.estado=estado;save();
+  atualizarFalta(f);
+  showToast(`${estado==='confirmada'?'✅ Ausência confirmada':'❌ Ausência rejeitada'}`,'ok',3000);
+  render();
+}
+
+function justificarFalta(fid){
+  const el=document.getElementById('just_'+fid);
+  if(!el||!el.value.trim()){alert('Escreve a justificação.');return;}
+  const f=FALTAS.find(x=>x.id===fid);
+  if(!f)return;
+  f.obs=el.value.trim();
+  f.tipo='falta_just';
+  save();
+  atualizarFalta(f);
+  showToast('✅ Justificação enviada! A aguardar confirmação.','ok',4000);
+  render();
+}
+
+function renderFaltasAll(){
+  let h=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.8rem">
+    <thead><tr style="background:var(--primary);color:#fff">
+      <th style="padding:8px 12px;text-align:left">Colaborador</th>
+      <th style="padding:8px 12px;text-align:left">Tipo</th>
+      <th style="padding:8px 12px;text-align:center">Período</th>
+      <th style="padding:8px 12px;text-align:center">Dias</th>
+      <th style="padding:8px 12px;text-align:center">Estado</th>
+    </tr></thead><tbody>`;
+  
+  const sorted=[...FALTAS].sort((a,b)=>a.dataInicio>b.dataInicio?-1:1);
+  if(!sorted.length)h+=`<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-l)">Sem ausências registadas.</td></tr>`;
+  sorted.forEach(f=>{
+    const emp=EMP.find(e=>e.nm===f.nome);
+    const dias=countBizDays(f.dataInicio,f.dataFim);
+    const stCl=f.estado==='confirmada'?'var(--ok)':f.estado==='rejeitada'?'var(--danger)':'var(--warn)';
+    h+=`<tr style="border-bottom:1px solid var(--brd)">
+      <td style="padding:8px 12px">${emp?emp.sh:f.nome}</td>
+      <td style="padding:8px 12px">${getTipoIcon(f.tipo)} ${getTipoNm(f.tipo)}</td>
+      <td style="padding:8px 12px;text-align:center">${fd(f.dataInicio)}${f.dataInicio!==f.dataFim?' - '+fd(f.dataFim):''}</td>
+      <td style="padding:8px 12px;text-align:center">${dias}</td>
+      <td style="padding:8px 12px;text-align:center;color:${stCl};font-weight:600">${f.estado==='confirmada'?'✅':f.estado==='rejeitada'?'❌':'⏳'}</td>
+    </tr>`;
+  });
+  h+=`</tbody></table></div>`;
+  return h;
+}
 
 function doExport(){
   let csv='Colaborador,Unidade,Secção,Dias,Total,Estado\n';
@@ -843,7 +1413,71 @@ function stepper(active){
 // ============================================================
 // INIT
 // ============================================================
-updateBadge();render();lerExcel();
+updateBadge();render();lerExcel();lerFaltas();
+
+// ============================================================
+// POPUP NOVIDADES
+// ============================================================
+(function(){
+  const NEWS_KEY='emb_news_v3';
+  if(localStorage.getItem(NEWS_KEY))return;
+  
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
+  
+  const modal=document.createElement('div');
+  modal.style.cssText='background:#fff;border-radius:16px;max-width:480px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:fadeIn .3s ease';
+  
+  modal.innerHTML=`
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:2.5rem;margin-bottom:8px">🆕</div>
+      <h2 style="font-family:'Fraunces',serif;font-size:1.3rem;color:#1E3A5F;margin-bottom:4px">Novidades na App</h2>
+      <p style="font-size:.82rem;color:#64748B">Versão 2.0 — Março 2026</p>
+    </div>
+    
+    <div style="margin-bottom:20px">
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:#EFF6FF;border-radius:10px;margin-bottom:10px">
+        <span style="font-size:1.5rem;line-height:1">📋</span>
+        <div>
+          <div style="font-weight:600;font-size:.9rem;color:#1E3A5F;margin-bottom:2px">Registo de Faltas e Ausências</div>
+          <div style="font-size:.8rem;color:#64748B">Agora podes registar faltas, baixas e outras ausências diretamente na app. A responsável confirma ou rejeita. Podes também justificar faltas injustificadas.</div>
+        </div>
+      </div>
+      
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:#EFF6FF;border-radius:10px;margin-bottom:10px">
+        <span style="font-size:1.5rem;line-height:1">✏️</span>
+        <div>
+          <div style="font-weight:600;font-size:.9rem;color:#1E3A5F;margin-bottom:2px">Alteração de Férias Pontuais</div>
+          <div style="font-size:.8rem;color:#64748B">Depois de aprovadas, podes alterar os dias pontuais (soltos). Os 10 dias consecutivos obrigatórios não podem ser alterados. O pedido volta a pendente para nova aprovação.</div>
+        </div>
+      </div>
+      
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:#EFF6FF;border-radius:10px">
+        <span style="font-size:1.5rem;line-height:1">📅</span>
+        <div>
+          <div style="font-weight:600;font-size:.9rem;color:#1E3A5F;margin-bottom:2px">Dias Pontuais</div>
+          <div style="font-size:.8rem;color:#64748B">Além dos 10 dias consecutivos obrigatórios, os restantes podem ser marcados como dias soltos.</div>
+        </div>
+      </div>
+    </div>
+    
+    <div style="padding:10px 14px;background:#FEF3C7;border-radius:10px;margin-bottom:20px;font-size:.8rem;color:#92400E">
+      <b>💡 Nota:</b> Se precisares de faltar um dia, podes usar um dia de férias pontual em vez de registar uma falta.
+    </div>
+    
+    <button id="newsClose" style="width:100%;padding:14px;background:#1E3A5F;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:.95rem;font-weight:600;cursor:pointer;transition:background .2s">Entendido! ✓</button>
+  `;
+  
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  
+  document.getElementById('newsClose').addEventListener('click',function(){
+    overlay.style.opacity='0';overlay.style.transition='opacity .2s';
+    setTimeout(()=>{overlay.remove();},200);
+    localStorage.setItem(NEWS_KEY,'seen');
+  });
+  overlay.addEventListener('click',function(e){if(e.target===overlay)document.getElementById('newsClose').click();});
+})();
 
 // PWA: Service Worker + Badge
 if('serviceWorker' in navigator){
