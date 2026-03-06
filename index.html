@@ -916,19 +916,15 @@ async function doSave(){
   
   let excelOk;
   if(isUpdate){
-    // Atualizar estado para pendente e regravar
+    // Só atualizar a linha existente — NÃO criar nova
     excelOk=await atualizarExcel(emp,'Pendente');
-    // Também gravar os novos dias
-    const sorted=days;
-    const payload={Colaborador:emp.nm,ColaboradorCurto:emp.sh,Unidade:emp.u,Seccao:emp.sec,Ano:CY,TotalDias:sorted.length,Estado:'Pendente',DataSubmissao:new Date().toISOString(),DiasIndividuais:sorted.join(';'),PeriodoInicio:sorted[0]||'',PeriodoFim:sorted[sorted.length-1]||''};
-    try{await fetch(PA.FLOW_GRAVAR,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:JSON.stringify(payload)});}catch(e){try{await fetch(PA.FLOW_GRAVAR,{method:'POST',body:JSON.stringify(payload),mode:'no-cors'});}catch(e2){}}
   }else{
     excelOk=await gravarExcel(emp,days,'Pendente');
   }
   document.getElementById('saving').classList.remove('show');
 
   showToast(`<b>✅ ${isUpdate?'Alteração submetida!':'Marcação submetida!'}</b>${emp.sh} — ${days.length} dias<br>${fdF(days[0])} a ${fdF(days[days.length-1])}<br><br>⏳ <strong>A aguardar aprovação da responsável.</strong>${excelOk?'<br><small>✓ Registado no Excel</small>':''}`,'ok',8000);
-  STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();updateBadge();
+  STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();updateBadge();
   setTimeout(()=>render(),500);
 }
 
