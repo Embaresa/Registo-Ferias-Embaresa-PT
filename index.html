@@ -489,8 +489,48 @@ async function gravarExcel(emp,days,estado){
 async function atualizarExcel(emp,estado){
   if(PA.FLOW_ATUALIZAR==='COLE_AQUI_URL_FLOW_ATUALIZAR'){console.log('⚠️ Flow atualizar não configurado');return false;}
   const payload=JSON.stringify({Colaborador:emp.nm,ColaboradorCurto:emp.sh,Ano:CY,Estado:estado});
-  try{const r=await fetch(PA.FLOW_ATUALIZAR,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload});return r.ok;}catch(e){
+  console.log('📤 ATUALIZAR payload:',payload);
+  
+  // Timeout de 15 segundos
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),15000);
+  
+  try{
+    const r=await fetch(PA.FLOW_ATUALIZAR,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload,signal:controller.signal});
+    clearTimeout(timeout);
+    console.log('📥 ATUALIZAR resposta:',r.status,r.statusText);
+    if(!r.ok){const txt=await r.text();console.error('❌ ATUALIZAR body:',txt);}
+    return r.ok;
+  }catch(e){
+    clearTimeout(timeout);
+    if(e.name==='AbortError'){console.log('⏱️ Timeout — a tentar via GRAVAR...');return await atualizarViaGravar(emp,estado);}
+    console.log('⚠️ CORS fallback...');
     try{await fetch(PA.FLOW_ATUALIZAR,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){console.error('❌',e2);return false;}
+  }
+}
+
+// Fallback: regravar a linha com estado atualizado usando o flow GRAVAR
+async function atualizarViaGravar(emp,estado){
+  const days=getEmpDays(emp.id,CY);
+  const periods=getPeriods(days);
+  const payload=JSON.stringify({
+    Colaborador:emp.nm,
+    ColaboradorCurto:emp.sh,
+    Ano:CY,
+    DataInicio:periods.length?periods[0].s:'',
+    DataFim:periods.length?periods[periods.length-1].e:'',
+    DiasTotal:days.length,
+    DiasCorridos:periods.map(p=>p.s+'→'+p.e).join('; '),
+    DiasIndividuais:days.join(';'),
+    Estado:estado
+  });
+  console.log('📤 GRAVAR (fallback) payload:',payload);
+  try{
+    const r=await fetch(PA.FLOW_GRAVAR,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload});
+    console.log('📥 GRAVAR resposta:',r.status);
+    return r.ok;
+  }catch(e){
+    try{await fetch(PA.FLOW_GRAVAR,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){return false;}
   }
 }
 async function lerExcel(){
@@ -513,6 +553,7 @@ async function lerExcel(){
         if(!emp)return;
         const dias=r.DiasIndividuais?r.DiasIndividuais.split(';').filter(Boolean):[];
         if(dias.length)SAVED[key]=dias;
+        console.log(`📋 LER ${r.ColaboradorCurto||r.Colaborador}: Estado="${r.Estado}"`);
         const st=r.Estado==='Aprovado'?'approved':r.Estado==='Rejeitado'?'rejected':'pending';
         APPROVALS[key]=st;
       });
