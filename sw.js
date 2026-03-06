@@ -1,44 +1,48 @@
-const CACHE_NAME = 'ferias-embaresa-v1';
+const CACHE_NAME = 'ferias-v3';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  'https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,700&display=swap'
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
-  self.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(c => c.addAll(ASSETS))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => 
-    Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', e => {
-  // Network first for API calls, cache first for assets
-  if (e.request.url.includes('powerplatform.com') || e.request.url.includes('powerautomate')) {
-    e.respondWith(fetch(e.request).catch(() => new Response('{"error":"offline"}', {headers:{'Content-Type':'application/json'}})));
-  } else {
-    e.respondWith(
-      caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
-        const clone = resp.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-        return resp;
-      }))
-    );
+  if (e.request.method !== 'GET' || e.request.url.includes('powerplatform.com') || e.request.url.includes('powerautomate')) {
+    return;
   }
+  e.respondWith(
+    fetch(e.request)
+      .then(r => {
+        const clone = r.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        return r;
+      })
+      .catch(() => caches.match(e.request))
+  );
 });
 
-// Badge API - mostrar número de pendentes no ícone
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SET_BADGE') {
+    const n = e.data.count;
     if (navigator.setAppBadge) {
-      if (e.data.count > 0) navigator.setAppBadge(e.data.count);
-      else navigator.clearAppBadge();
+      n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge();
     }
   }
 });
