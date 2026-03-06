@@ -147,12 +147,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:700px){
   .cal-months{grid-template-columns:repeat(2,1fr)}
-  .wrap{padding:.75rem}
+  .wrap{padding:.75rem;padding-bottom:70px}
   .cal-info{flex-direction:column}
-  .hdr{height:auto;flex-direction:column;padding:10px 12px;gap:8px}
-  .hdr h1{font-size:.92rem}
-  .hdr-r{flex-wrap:wrap;justify-content:center;gap:6px}
-  .hdr-r button{padding:5px 10px;font-size:.72rem}
+  .hdr{height:auto;padding:10px 12px;gap:0}
+  .hdr h1{font-size:.88rem;width:100%;justify-content:center}
+  .hdr-r{display:none}
+  .mobile-nav{display:flex!important}
   .card{padding:1rem}
   h2{font-size:1rem}
   .btn{padding:10px 16px;font-size:.82rem}
@@ -168,18 +168,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 @media(max-width:450px){
   .cal-months{grid-template-columns:1fr}
   .pin-input input{width:44px;height:52px;font-size:1.2rem}
-  .hdr h1{font-size:.82rem}
-  .hdr h1 svg{width:18px;height:18px}
-  .hdr-r button{padding:4px 8px;font-size:.68rem}
+  .hdr h1{font-size:.8rem}
+  .hdr h1 svg{width:16px;height:16px}
   .sync-ind{display:none}
-  .wrap{padding:.5rem}
+  .wrap{padding:.5rem;padding-bottom:70px}
   .card{padding:.75rem}
   .cal-stat{min-width:80px;padding:.5rem .75rem}
   .cal-stat .v{font-size:1.2rem}
   .legend{font-size:.65rem;gap:6px}
   .legend i{width:8px;height:8px}
 }
-@media print{.hdr,.btn,.toast,.saving{display:none!important}.wrap{padding:0;max-width:100%}}
+.mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--primary);padding:6px 0;padding-bottom:max(6px,env(safe-area-inset-bottom));box-shadow:0 -2px 12px rgba(30,58,95,.3);z-index:100;justify-content:space-around;align-items:center}
+.mobile-nav button{background:none;border:none;color:rgba(255,255,255,.7);font-family:inherit;font-size:.62rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 8px;border-radius:8px;transition:all .2s}
+.mobile-nav button.active{color:#fff;background:rgba(255,255,255,.15)}
+.mobile-nav button span.nav-icon{font-size:1.2rem;line-height:1}
+@media print{.hdr,.btn,.toast,.saving,.mobile-nav{display:none!important}.wrap{padding:0;max-width:100%}}
 </style>
 </head>
 <body>
@@ -201,6 +204,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="wrap" id="app"></div>
 <div class="toast" id="toast"></div>
 <div class="saving" id="saving"><div class="saving-box"><div class="spinner"></div><div id="savingTxt">A gravar...</div></div></div>
+
+<nav class="mobile-nav" id="mobileNav">
+  <button onclick="if(LOGGED_USER){STEP=LOGGED_USER.isAdmin?'admin':0;render();}">
+    <span class="nav-icon">🏠</span>Início
+  </button>
+  <button onclick="STEP='faltas';render()">
+    <span class="nav-icon">📋</span>Faltas
+  </button>
+  <button onclick="viewAll()">
+    <span class="nav-icon">🗺️</span>Mapa
+  </button>
+  <button onclick="doExport()">
+    <span class="nav-icon">📥</span>CSV
+  </button>
+  <button onclick="if(LOGGED_USER){STEP=-1;LOGGED_USER=null;updateBadge();render();}">
+    <span class="nav-icon">🚪</span>Sair
+  </button>
+</nav>
 
 <script>
 // ============================================================
