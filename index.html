@@ -613,15 +613,29 @@ async function lerFaltas(){
           if(st==='confirmada'||st==='aprovado'||st==='aprovada')estado='confirmada';
           else if(st==='rejeitada'||st==='rejeitado')estado='rejeitada';
           else estado='pendente';
-        } else if(r.Tipo==='ferias'){
+        } else if((r.Tipo||'').toLowerCase().includes('feria')){
           estado='confirmada';
         }
+        // Normalizar tipo
+        let tipo=r.Tipo||'outro';
+        const tl=tipo.toLowerCase().trim();
+        if(tl==='férias'||tl==='ferias')tipo='ferias';
+        else if(tl==='falta'||tl==='falta justificada'||tl==='falta_just')tipo='falta_just';
+        else if(tl==='falta injustificada'||tl==='falta_injust')tipo='falta_injust';
+        else if(tl==='baixa'||tl==='baixa médica')tipo='baixa';
+        else if(tl==='assist_fam'||tl==='assistência')tipo='assist_fam';
+        else if(tl==='lic_parental'||tl==='licença parental')tipo='lic_parental';
+        
+        // Mapear nome do Excel para nome curto da app
+        const emp=EMP.find(e=>e.nm===r.Nome||e.sh===r.Nome);
+        
         return {
           id:r.ID||('f'+Math.random().toString(36).substr(2,6)),
           nome:r.Nome,
+          nomeCurto:emp?emp.sh:r.Nome,
           dataInicio:parseExcelDate(r.DataInicio),
           dataFim:parseExcelDate(r.DataFim),
-          tipo:r.Tipo||'outro',
+          tipo:tipo,
           obs:r.Observacoes||'',
           estado:estado,
           registadoPor:r.RegistadoPor||'sistema'
@@ -650,7 +664,11 @@ async function atualizarFalta(falta){
     try{await fetch(PA.FLOW_ATUALIZAR_FALTA,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){return false;}
   }
 }
-function getFaltasEmp(empNm){return FALTAS.filter(f=>f.nome===empNm);}
+function getFaltasEmp(empNm){
+  const emp=EMP.find(e=>e.nm===empNm||e.sh===empNm);
+  if(!emp)return FALTAS.filter(f=>f.nome===empNm);
+  return FALTAS.filter(f=>f.nome===emp.nm||f.nome===emp.sh||f.nomeCurto===emp.sh);
+}
 function countBizDays(d1,d2){let c=0,d=pd(d1);const end=pd(d2);while(d<=end){if(!isW(d))c++;d.setDate(d.getDate()+1);}return c;}
 
 function countPending(){
