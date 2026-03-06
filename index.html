@@ -606,8 +606,7 @@ async function lerFaltas(){
     const data=await r.json();
     let rows=Array.isArray(data)?data:data.value||[];
     if(rows.length){
-      FALTAS=rows.map(r=>{
-        // Ler estado do Excel — se não existir coluna, inferir
+      const excelFaltas=rows.map(r=>{
         let estado='pendente';
         if(r.Estado){
           const st=r.Estado.toLowerCase().trim();
@@ -628,6 +627,18 @@ async function lerFaltas(){
           registadoPor:r.RegistadoPor||'sistema'
         };
       }).filter(f=>f.dataInicio);
+      
+      // Fundir: estado local tem prioridade sobre Excel
+      excelFaltas.forEach(ef=>{
+        const local=FALTAS.find(lf=>lf.nome===ef.nome&&lf.dataInicio===ef.dataInicio);
+        if(local&&local.estado!=='pendente'){
+          // Manter estado local (ex: confirmada pelo admin)
+          ef.estado=local.estado;
+          ef.obs=local.obs||ef.obs;
+          ef.tipo=local.tipo||ef.tipo;
+        }
+      });
+      FALTAS=excelFaltas;
       save();
     }
   }catch(e){console.error('❌ Ler faltas:',e);}
