@@ -570,7 +570,8 @@ function updateSync(ok){document.getElementById('syncDot').className='dot '+(ok?
 async function gravarFalta(falta){
   FALTAS.push(falta);save();
   if(PA.FLOW_GRAVAR_FALTA==='COLE_AQUI_URL_FLOW_GRAVAR_FALTA'){console.log('⚠️ Flow faltas não configurado:',falta);return true;}
-  const payload=JSON.stringify({Nome:falta.nome,DataInicio:falta.dataInicio,DataFim:falta.dataFim,Tipo:falta.tipo,Observacoes:falta.obs||'',Estado:falta.estado||'pendente'});
+  const nextId=FALTAS.length>0?Math.max(...FALTAS.map(f=>parseInt(f.id)||0))+1:1;
+  const payload=JSON.stringify({ID:nextId,Nome:falta.nome,DataInicio:falta.dataInicio,DataFim:falta.dataFim,Tipo:falta.tipo,Observacoes:falta.obs||'',Estado:falta.estado||'pendente'});
   try{const r=await fetch(PA.FLOW_GRAVAR_FALTA,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload});return r.ok;}catch(e){
     try{await fetch(PA.FLOW_GRAVAR_FALTA,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){console.error('❌',e2);return false;}
   }
