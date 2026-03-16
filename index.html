@@ -681,7 +681,7 @@ async function lerFaltas(){
 }
 async function atualizarFalta(falta){
   if(PA.FLOW_ATUALIZAR_FALTA==='COLE_AQUI_URL_FLOW_ATUALIZAR_FALTA')return true;
-  const payload=JSON.stringify({Nome:falta.nome,DataInicio:falta.dataInicio,Tipo:falta.tipo,Observacoes:falta.obs||'',Estado:falta.estado||'pendente'});
+  const payload=JSON.stringify({ID:falta.id,Nome:falta.nome,DataInicio:falta.dataInicio,DataFim:falta.dataFim,Tipo:falta.tipo,Observacoes:falta.obs||'',Estado:falta.estado||'pendente'});
   try{const r=await fetch(PA.FLOW_ATUALIZAR_FALTA,{method:'POST',headers:{'Content-Type':'application/json'},mode:'cors',body:payload});return r.ok;}catch(e){
     try{await fetch(PA.FLOW_ATUALIZAR_FALTA,{method:'POST',body:payload,mode:'no-cors'});return true;}catch(e2){return false;}
   }
