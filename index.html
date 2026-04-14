@@ -234,20 +234,172 @@ const PA = {
   FLOW_GRAVAR_FALTA: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/97a06a0213724cb39ea0c29bbed7f9f4/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=aYMeSP-fP89PypAXvzITbvwzximR34Ieow2ye43s1AA',
   FLOW_LER_FALTAS: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/6ed1fb743fbb43b0b1cde9b3c57137aa/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=bGej-yvTsfcecXR_ilzRlNikgGR0Qu7arF9azyNbn_E',
   FLOW_ATUALIZAR_FALTA: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/0cc06a1b61724b188a3003f9f188255e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=aPj2SHZgqN3qJVEfYbqIaAXa4oD97B5oFRiDnzZ0bwg',
+  FLOW_LER_COLAB: 'https://defaultcade90c14fe343a3860494c20418f8.fb.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/464482ea19714e50b858771991c0539d/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=H29XBCpPy1dyMk7Gyj6LAWy8RKI8Q4mpUFdI5qanNKU',
 };
 
 // ============================================================
-// PINs - 4 dígitos por colaborador
+// PINs - carregados do flow
 // ============================================================
-const DEFAULT_PINS = {
-  1:'1111', 2:'2222', 3:'3333', 4:'4444', 5:'5555',
-  6:'6666', 7:'7777', 8:'8888', 9:'9999', 10:'0000',
-  11:'1234', 12:'5678', 13:'9012'
-};
-const ADMIN_PIN = '2025'; // PIN especial para painel admin
-
-let PINS = JSON.parse(localStorage.getItem('emb_pins') || 'null') || {...DEFAULT_PINS};
+const ADMIN_PIN = '2025';
+let PINS = JSON.parse(localStorage.getItem('emb_pins') || 'null') || {};
 function savePins(){ localStorage.setItem('emb_pins', JSON.stringify(PINS)); }
+
+// ============================================================
+// COLABORADORES — carregados dinamicamente via carregarColaboradores()
+// ============================================================
+let EMP = [];
+let RULES = [];
+const AERNNOVA = { start:'08-01', end:'08-16', maxSimul:6, maxGrupo:2 };
+let AERO_SOLD_IDS = [], AERO_EV1_IDS = [], AERO_EV2_IDS = [], AERO_MOTORISTAS = [];
+const AERO_MIN_EV1=3, AERO_MIN_EV2=1, AERO_MIN_SOLD=1;
+
+function _gerarNomeCurto(nm){const p=nm.trim().split(/\s+/);return p.length===1?p[0]:p[0]+' '+p[p.length-1];}
+function _normUnidade(u){return((u||'').toString().toLowerCase().replace(/\s/g,'').includes('2'))?'Évora 2':'Évora 1';}
+function _construirRegras(lista){
+  // Regras por nome curto — independentes dos IDs do flow
+  const gId=nm=>lista.find(e=>e.sh===nm||e.nm===nm||e.nm.startsWith(nm.split(' ')[0])&&e.nm.includes(nm.split(' ').pop()))?.id;
+  const mkRule=(id,nm,nomes)=>{const ids=nomes.map(gId).filter(Boolean);return ids.length>1?{id,nm,ids,mx:1}:null;};
+  return [
+    mkRule('sold',  'Soldadura',  ['Nuno Franco','William Inaba','Jonathan Braga']),
+    mkRule('turnos','Turnos',     ['André Rocha','Valdir Tavares','David Rocha','Pedro Familia']),
+    mkRule('fracs', 'Fracs',      ['Joaquim Comenda','Pedro Ganso','Bruno Santos']),
+    mkRule('sr',    'Sónia + Rui',['Sónia Santos','Rui Richáu']),
+  ].filter(Boolean);
+}
+function _migrarIds(oldEMP, newEMP){
+  // Se os IDs mudaram, migra SAVED e APPROVALS do localStorage para os novos IDs
+  let migrou=false;
+  const newSAVED={}, newAPPROVALS={};
+  Object.entries(SAVED).forEach(([key,val])=>{
+    const [oid,yr]=key.split('_');
+    const oe=oldEMP.find(e=>e.id===parseInt(oid));
+    if(oe){const ne=newEMP.find(e=>e.nm===oe.nm);if(ne){newSAVED[`${ne.id}_${yr}`]=val;migrou=true;return;}}
+    newSAVED[key]=val; // mantém se não encontrou mapeamento
+  });
+  Object.entries(APPROVALS).forEach(([key,val])=>{
+    const [oid,yr]=key.split('_');
+    const oe=oldEMP.find(e=>e.id===parseInt(oid));
+    if(oe){const ne=newEMP.find(e=>e.nm===oe.nm);if(ne){newAPPROVALS[`${ne.id}_${yr}`]=val;return;}}
+    newAPPROVALS[key]=val;
+  });
+  if(migrou){SAVED=newSAVED;APPROVALS=newAPPROVALS;save();console.log('🔄 IDs migrados para nova numeração');}
+}
+
+function _usarFallback(){
+  EMP=[
+    {id:1,nm:'Amílcar Manuel Monginho Barreto',sh:'Amílcar Barreto',u:'Évora 1',sec:'Montagem',d:22},
+    {id:2,nm:'André Avelino Tavares Rocha',sh:'André Rocha',u:'Évora 1',sec:'Montagem',d:22},
+    {id:3,nm:'David Alexandre Lopes Rocha',sh:'David Rocha',u:'Évora 1',sec:'Montagem',d:22},
+    {id:6,nm:'Joaquim Comenda',sh:'Joaquim Comenda',u:'Évora 2',sec:'Montagem',d:22},
+    {id:7,nm:'Nuno Rafael Pereira Franco',sh:'Nuno Franco',u:'Évora 1',sec:'Soldadura',d:22},
+    {id:8,nm:'Pedro Miguel Serranito Familia',sh:'Pedro Familia',u:'Évora 1',sec:'Montagem',d:22},
+    {id:9,nm:'Rui Miguel Charrua Richáu',sh:'Rui Richáu',u:'Évora 1',sec:'Transportes',d:22},
+    {id:10,nm:'Valdir Tavares',sh:'Valdir Tavares',u:'Évora 1',sec:'Montagem',d:22},
+    {id:11,nm:'William Chaves Inaba',sh:'William Inaba',u:'Évora 1',sec:'Soldadura',d:22},
+    {id:12,nm:'Paulo Saramago',sh:'Paulo Saramago',u:'Évora 1',sec:'Montagem',d:22},
+    {id:13,nm:'Jonathan Braga',sh:'Jonathan Braga',u:'Évora 1',sec:'Soldadura',d:22},
+    {id:14,nm:'Pedro Ganso',sh:'Pedro Ganso',u:'Évora 2',sec:'Montagem',d:22},
+    {id:15,nm:'Bruno Santos',sh:'Bruno Santos',u:'Évora 2',sec:'Montagem',d:22},
+    {id:16,nm:'Raquel Empadinhas',sh:'Raquel Empadinhas',u:'Évora 1',sec:'Transportes',d:22},
+    {id:17,nm:'Sónia Santos',sh:'Sónia Santos',u:'Évora 1',sec:'Responsável',d:22},
+  ];
+  const fallbackPins={1:9012,2:4444,3:6666,6:5678,7:1111,8:1515,9:9999,10:5555,11:2222,12:3333,13:1020,14:2030,15:3040,16:4050,17:0};
+  const stored=JSON.parse(localStorage.getItem('emb_pins')||'null')||{};
+  Object.entries(fallbackPins).forEach(([id,pin])=>{if(stored[id]==null)stored[id]=String(pin).padStart(4,'0');});
+  PINS=stored; savePins();
+  RULES=_construirRegras(EMP);
+  AERO_SOLD_IDS=EMP.filter(e=>e.sec==='Soldadura').map(e=>e.id);
+  AERO_EV1_IDS=EMP.filter(e=>e.u==='Évora 1').map(e=>e.id);
+  AERO_EV2_IDS=EMP.filter(e=>e.u==='Évora 2').map(e=>e.id);
+  AERO_MOTORISTAS=EMP.filter(e=>e.sec==='Transportes').map(e=>e.id);
+    // Amílcar é motorista de reserva independentemente da secção
+    const amilcar=EMP.find(e=>e.nm.includes('Amílcar')||e.sh.includes('Amílcar'));
+    if(amilcar&&!AERO_MOTORISTAS.includes(amilcar.id))AERO_MOTORISTAS.push(amilcar.id);
+  localStorage.setItem('emb_colab_cache',JSON.stringify(EMP));
+  updateSync(false);
+  showToast('⚠️ Flow sem dados — a usar lista local. Verifica o flow.','w',6000);
+}
+
+async function carregarColaboradores(){
+  document.getElementById('app').innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 56px)"><div style="text-align:center;color:var(--text-m)"><div style="width:36px;height:36px;border:3px solid var(--brd);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 1rem"></div><p style="font-size:.85rem">A carregar colaboradores...</p></div></div>`;
+  try{
+    const r=await fetch(PA.FLOW_LER_COLAB,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const raw=await r.json();
+    // Suporta: array direto, {colaboradores:[...]}, {value:[...]}, {body:[...]}, {dados:[...]}
+    const dados=Array.isArray(raw)?raw:(raw.colaboradores||raw.value||raw.body||raw.dados||[]);
+    console.log('📥 Flow colaboradores — total linhas:',dados.length,'| 1ª linha:',JSON.stringify(dados[0]||{}));
+    // Se o flow devolveu vazio, usar fallback hardcoded
+    if(dados.length===0){
+      console.warn('⚠️ Flow devolveu vazio — a usar lista hardcoded (verifica o flow)');
+      return _usarFallback();
+    }
+    // Filtro Ativo: exclui apenas valores explicitamente falsos
+    const ativos=dados.filter(c=>{
+      const v=c.Ativo;
+      if(v===false||v===0||v===null||v===undefined||v===''||v==='false'||v==='False'||v==='FALSE')return false;
+      // DataSaida preenchida = inativo
+      if(c.DataSaida&&c.DataSaida!==null&&c.DataSaida!=='')return false;
+      return true;
+    });
+    console.log('✅ Ativos após filtro:',ativos.length);
+    if(ativos.length===0)throw new Error(`Nenhum colaborador ativo — dados recebidos: ${JSON.stringify(dados.slice(0,2))}`);
+    const newEMP=ativos.map(c=>({
+      id:Number(c.ID),
+      nm:String(c.Nome||''),
+      sh:c.NomeCurto||_gerarNomeCurto(String(c.Nome||'')),
+      u:_normUnidade(c.Unidade),
+      sec:String(c['Secção']||c.Seccao||c.Seccao||'Montagem'),
+      d:22
+    }));
+    // Migrar SAVED/APPROVALS se IDs mudaram relativamente ao cache anterior
+    const cachedRaw=localStorage.getItem('emb_colab_cache');
+    if(cachedRaw){try{_migrarIds(JSON.parse(cachedRaw),newEMP);}catch(e2){}}
+    EMP=newEMP;
+    // PINs: mesclar existentes com novos do flow
+    const stored=JSON.parse(localStorage.getItem('emb_pins')||'null')||{};
+    ativos.forEach(c=>{if(c.PIN!=null&&stored[Number(c.ID)]==null)stored[Number(c.ID)]=String(c.PIN).padStart(4,'0');});
+    PINS=stored; savePins();
+    // Regras e arrays AERNNOVA dinâmicos
+    RULES=_construirRegras(EMP);
+    AERO_SOLD_IDS=EMP.filter(e=>e.sec==='Soldadura').map(e=>e.id);
+    AERO_EV1_IDS=EMP.filter(e=>e.u==='Évora 1').map(e=>e.id);
+    AERO_EV2_IDS=EMP.filter(e=>e.u==='Évora 2').map(e=>e.id);
+    AERO_MOTORISTAS=EMP.filter(e=>e.sec==='Transportes').map(e=>e.id);
+    // Amílcar é motorista de reserva independentemente da secção
+    const amilcar=EMP.find(e=>e.nm.includes('Amílcar')||e.sh.includes('Amílcar'));
+    if(amilcar&&!AERO_MOTORISTAS.includes(amilcar.id))AERO_MOTORISTAS.push(amilcar.id);
+    localStorage.setItem('emb_colab_cache',JSON.stringify(EMP));
+    // Garantir que a Sónia está sempre presente (Responsável)
+    if(!EMP.find(e=>e.nm==='Sónia Santos')){
+      EMP.push({id:99,nm:'Sónia Santos',sh:'Sónia Santos',u:'Évora 1',sec:'Responsável',d:22});
+      if(!PINS[99])PINS[99]='0000'; savePins();
+    }
+    updateSync(true);
+    console.log('✅ Colaboradores:',EMP.length,'| Soldadura:',AERO_SOLD_IDS,'| Év1:',AERO_EV1_IDS,'| Év2:',AERO_EV2_IDS);
+  }catch(e){
+    console.error('❌ carregarColaboradores:',e);
+    updateSync(false);
+    const cached=localStorage.getItem('emb_colab_cache');
+    if(cached){
+      try{
+        EMP=JSON.parse(cached);
+        RULES=_construirRegras(EMP);
+        AERO_SOLD_IDS=EMP.filter(e=>e.sec==='Soldadura').map(e=>e.id);
+        AERO_EV1_IDS=EMP.filter(e=>e.u==='Évora 1').map(e=>e.id);
+        AERO_EV2_IDS=EMP.filter(e=>e.u==='Évora 2').map(e=>e.id);
+        AERO_MOTORISTAS=EMP.filter(e=>e.sec==='Transportes').map(e=>e.id);
+    // Amílcar é motorista de reserva independentemente da secção
+    const amilcar=EMP.find(e=>e.nm.includes('Amílcar')||e.sh.includes('Amílcar'));
+    if(amilcar&&!AERO_MOTORISTAS.includes(amilcar.id))AERO_MOTORISTAS.push(amilcar.id);
+        showToast('⚠️ Sem ligação ao flow — a usar lista em cache.','w',5000);
+        console.warn('⚠️ A usar EMP cache:',EMP.length);
+      }catch(e2){EMP=[];showToast('<b>Erro</b><br>Não foi possível carregar colaboradores.','e',8000);}
+    } else {
+      showToast('<b>Erro</b><br>Flow indisponível e sem cache. Verifica a ligação.','e',8000);
+    }
+  }
+}
 
 // ============================================================
 // DATA LIMITE
@@ -271,42 +423,7 @@ let CY=2026, STEP=-1, SEL_EMP=null, SEL_DAYS=new Set(), RANGE_START=null;
 let LOGGED_USER=null; // {id, isAdmin}
 let ADMIN_TAB='pending'; // pending, all, config
 
-const EMP=[
-  {id:1,nm:'Nuno Rafael Pereira Franco',sh:'Nuno Franco',u:'Évora 1',sec:'Soldadura',d:22},
-  {id:2,nm:'William Chaves Inaba',sh:'William Inaba',u:'Évora 1',sec:'Soldadura',d:22},
-  {id:3,nm:'Paulo Saramago',sh:'Paulo Saramago',u:'Évora 1',sec:'Soldadura',d:22},
-  {id:4,nm:'André Avelino Tavares Rocha',sh:'André Rocha',u:'Évora 1',sec:'Turnos (T1)',d:22},
-  {id:5,nm:'Valdir Tavares',sh:'Valdir Tavares',u:'Évora 1',sec:'Turnos (T1)',d:22},
-  {id:6,nm:'David Alexandre Lopes Rocha',sh:'David Rocha',u:'Évora 1',sec:'Turnos (T2)',d:22},
-  {id:7,nm:'Fernando Garcia',sh:'Fernando Garcia',u:'Évora 1',sec:'Turnos (T2)',d:22},
-  {id:8,nm:'Pedro Miguel Serranito Familia',sh:'Pedro Familia',u:'Évora 1',sec:'Horário Normal',d:22},
-  {id:9,nm:'Rui Miguel Charrua Richáu',sh:'Rui Richáu',u:'Évora 1',sec:'Motorista',d:22},
-  {id:10,nm:'Sónia Santos',sh:'Sónia Santos',u:'Évora 1',sec:'Responsável',d:22},
-  {id:11,nm:'Hugo José Ferreira da Silva',sh:'Hugo Silva',u:'Évora 2',sec:'Fracs',d:22},
-  {id:12,nm:'Joaquim Comenda',sh:'Joaquim Comenda',u:'Évora 2',sec:'Fracs',d:22},
-  {id:13,nm:'Amílcar Manuel Monginho Barreto',sh:'Amílcar Barreto',u:'Évora 2',sec:'Fracs',d:22},
-];
-
-const RULES=[
-  {id:'turnos',nm:'Turnos',ids:[4,5,6,7],mx:1},
-  {id:'fracs',nm:'Fracs (Évora 2)',ids:[11,12,13],mx:1},
-  {id:'sold',nm:'Soldadura',ids:[1,2,3],mx:1},
-  {id:'sr',nm:'Sónia + Rui',ids:[9,10],mx:1},
-  {id:'ra',nm:'Rui + Amílcar',ids:[9,13],mx:1},
-];
-
-// REGRA AERNNOVA — paragem 1ª quinzena agosto
-// 1-16 agosto: máx 6 em simultâneo, grupos relaxados (máx 2 por grupo)
-// Presença obrigatória: 1 soldador + 1 motorista + mín 3 Évora1 + mín 1 Évora2
-// Se motorista presente é Amílcar (Évora 2), outro de Évora 2 tem de estar também
-const AERNNOVA = { start:'08-01', end:'08-16', maxSimul:6, maxGrupo:2 };
-const AERO_SOLD_IDS = [1,2,3]; // Soldadores
-const AERO_EV1_IDS = [1,2,3,4,5,6,7,8,9,10]; // Todos Évora 1
-const AERO_EV2_IDS = [11,12,13]; // Todos Évora 2
-const AERO_MOTORISTAS = [9,13]; // Rui (Év1) e Amílcar (Év2)
-const AERO_MIN_EV1 = 3; // mín presentes Évora 1
-const AERO_MIN_EV2 = 1; // mín presentes Évora 2
-const AERO_MIN_SOLD = 1; // mín soldadores presentes
+// (EMP, RULES e arrays AERNNOVA declarados e carregados em carregarColaboradores acima)
 
 function isAernnova(dayStr){
   const mmdd=dayStr.substring(5);
@@ -730,7 +847,9 @@ function renderLogin(c){
     <p>Embaresa PT — ${CY}</p>
     <div class="name-sel" id="nameList">`;
   
-  const groups=[{t:'Évora 1 — Soldadura',ids:[1,2,3]},{t:'Évora 1 — Turnos',ids:[4,5,6,7]},{t:'Évora 1 — Outros',ids:[8,9,10]},{t:'Évora 2 — Fracs',ids:[11,12,13]}];
+  const gruposMap={};
+  EMP.forEach(emp=>{const k=emp.u+'|'+emp.sec;if(!gruposMap[k])gruposMap[k]={t:emp.u+' — '+emp.sec,ids:[],u:emp.u};gruposMap[k].ids.push(emp.id);});
+  const groups=Object.values(gruposMap).sort((a,b)=>a.u!==b.u?a.u<b.u?-1:1:a.t<b.t?-1:1);
   groups.forEach(g=>{
     h+=`<div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-l);font-weight:600;padding:8px 0 4px;border-bottom:1px solid var(--brd);margin-bottom:4px">${g.t}</div>`;
     g.ids.forEach(id=>{
@@ -838,16 +957,16 @@ function renderRules(c,ban){
     <div class="rule"><span class="rule-icon">🔟</span><div>Obrigatório marcar pelo menos <b>10 dias úteis consecutivos</b>. Os restantes dias podem ser marcados de forma pontual.</div></div>
     <div class="rule"><span class="rule-icon">🏭</span><div>Máximo <b>2 colaboradores de férias ao mesmo tempo</b> — 1 por unidade.</div></div>
     <div class="rule"><span class="rule-icon">✈️</span><div><b>1 a 16 de agosto</b> (paragem Aernnova): até <b>6 colaboradores</b> em simultâneo e máx <b>2 por grupo</b>. Equipa mínima obrigatória:</div></div>
-    <div class="rule" style="padding-left:2rem"><span class="rule-icon">🔧</span><div><b>1 soldador</b> presente (Nuno, William ou Paulo)</div></div>
+    <div class="rule" style="padding-left:2rem"><span class="rule-icon">🔧</span><div><b>1 soldador</b> presente (Nuno, William ou Jonathan)</div></div>
     <div class="rule" style="padding-left:2rem"><span class="rule-icon">🚛</span><div><b>1 motorista</b> presente (Rui ou Amílcar) — não podem ambos estar de férias</div></div>
     <div class="rule" style="padding-left:2rem"><span class="rule-icon">💡</span><div>Se o <b>Amílcar</b> for o motorista de serviço, tem de estar mais <b>1 de Évora 2</b> presente</div></div>
     <div class="rule" style="padding-left:2rem"><span class="rule-icon">🏭</span><div>Mín. <b>3 presentes de Évora 1</b></div></div>
     <div class="rule" style="padding-left:2rem"><span class="rule-icon">🏭</span><div>Mín. <b>1 presente de Évora 2</b></div></div>
     <div class="rule"><span class="rule-icon">⏰</span><div>Prazo limite: <b>${DATA_LIMITE_FMT}</b></div></div>
     <h3 style="margin-top:1.25rem">Restrições por Grupo</h3>
-    <div class="rule"><span class="rule-icon">🔧</span><div><b>Soldadura</b> (Nuno, William, Paulo) — máx 1 em simultâneo.</div></div>
-    <div class="rule"><span class="rule-icon">🔄</span><div><b>Turnos</b> (André, Valdir, David, Fernando) — máx 1 em simultâneo.</div></div>
-    <div class="rule"><span class="rule-icon">📦</span><div><b>Fracs</b> (Hugo, Joaquim, Amílcar) — máx 1 em simultâneo.</div></div>
+    <div class="rule"><span class="rule-icon">🔧</span><div><b>Soldadura</b> (Nuno, William, Jonathan) — máx 1 em simultâneo.</div></div>
+    <div class="rule"><span class="rule-icon">🔄</span><div><b>Turnos</b> (André, Valdir, David, Pedro Familia) — máx 1 em simultâneo.</div></div>
+    <div class="rule"><span class="rule-icon">📦</span><div><b>Fracs</b> (Joaquim, Pedro Ganso, Bruno) — máx 1 em simultâneo.</div></div>
     <div class="rule"><span class="rule-icon">👥</span><div><b>Sónia e Rui</b> não podem estar de férias ao mesmo tempo.</div></div>
     <div class="rule"><span class="rule-icon">👥</span><div><b>Rui e Amílcar</b> não podem estar de férias ao mesmo tempo.</div></div>
     <div class="rule"><span class="rule-icon">💡</span><div>Se houver conflito, a app diz-te <b>com quem deves falar</b>.</div></div>
@@ -1569,7 +1688,8 @@ function stepper(active){
 // ============================================================
 // INIT
 // ============================================================
-updateBadge();render();lerExcel();lerFaltas();
+updateBadge();
+carregarColaboradores().then(()=>{ render(); lerExcel(); lerFaltas(); });
 
 // ============================================================
 // POPUP NOVIDADES
