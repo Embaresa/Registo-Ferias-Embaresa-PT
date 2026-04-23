@@ -424,7 +424,7 @@ function showToast(html,type,ms=5000){const t=document.getElementById('toast');t
 // ============================================================
 const MO=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const WK=['S','T','Q','Q','S','S','D'];
-let CY=2026, STEP=-1, SEL_EMP=null, SEL_DAYS=new Set(), RANGE_START=null;
+let CY=2026, STEP=-1, SEL_EMP=null, SEL_DAYS=new Set(), RANGE_START=null, RANGE_MODE=false;
 let LOGGED_USER=null; // {id, isAdmin}
 let ADMIN_TAB='pending'; // pending, all, config
 let ADMIN_MARKING_FOR=null; // id do colaborador quando a admin está a marcar férias em nome de alguém (sem restrições)
@@ -845,7 +845,7 @@ function updateBadge(){
 }
 
 function logout(){
-  if(confirm('Sair da sessão?')){LOGGED_USER=null;STEP=-1;SEL_EMP=null;SEL_DAYS=new Set();ADMIN_MARKING_FOR=null;LOCKED_DAYS=new Set();IS_EDIT_MODE=false;updateBadge();render();}
+  if(confirm('Sair da sessão?')){LOGGED_USER=null;STEP=-1;SEL_EMP=null;SEL_DAYS=new Set();ADMIN_MARKING_FOR=null;LOCKED_DAYS=new Set();IS_EDIT_MODE=false;RANGE_MODE=false;RANGE_START=null;updateBadge();render();}
 }
 
 function renderLogin(c){
@@ -986,6 +986,7 @@ function renderRules(c,ban){
 function enterCalendar(){
   SEL_EMP=LOGGED_USER.id;
   ADMIN_MARKING_FOR=null;
+  RANGE_MODE=false;RANGE_START=null;
   const existingDays=getEmpDays(LOGGED_USER.id,CY);
   const appr=getApproval(LOGGED_USER.id,CY);
   SEL_DAYS=new Set(existingDays);
@@ -1012,6 +1013,7 @@ function adminEnterCalendarFor(empId){
   LOCKED_DAYS=new Set();
   IS_EDIT_MODE=false;
   RANGE_START=null;
+  RANGE_MODE=false;
   STEP=1;render();
 }
 
@@ -1020,6 +1022,7 @@ function cancelAdminMarking(){
   SEL_EMP=null;
   SEL_DAYS=new Set();
   RANGE_START=null;
+  RANGE_MODE=false;
   LOCKED_DAYS=new Set();
   IS_EDIT_MODE=false;
   STEP='admin';render();
@@ -1084,7 +1087,7 @@ function renderCalendar(c,ban){
     <span style="display:inline-flex;align-items:center;gap:4px"><i style="display:inline-block;width:10px;height:2px;background:#7C3AED;border-radius:1px"></i> Faltas/Ausências</span>
     <span style="color:var(--text-l);font-style:italic">— passa o rato para ver quem</span>
   </div>
-  <p style="font-size:.75rem;color:var(--text-l);margin-bottom:1rem">Clica num dia para selecionar. Clica num dia e depois noutro para intervalo.</p><div class="cal-months">`;
+  <p style="font-size:.75rem;color:${RANGE_MODE?'var(--warn)':'var(--text-l)'};margin-bottom:1rem;${RANGE_MODE?'font-weight:600':''}">${RANGE_MODE?(RANGE_START?'📐 Modo intervalo: agora clica no <b>último</b> dia.':'📐 Modo intervalo ativo: clica no <b>primeiro</b> dia do intervalo.'):'Clica num dia para o marcar/desmarcar. Para marcar vários dias seguidos, usa o botão <b>📐 Intervalo</b>.'}</p><div class="cal-months">`;
   for(let m=0;m<12;m++){
     const f=new Date(CY,m,1),dm=new Date(CY,m+1,0).getDate();let sd=f.getDay();sd=sd===0?6:sd-1;
     h+=`<div class="mo-card"><div class="mo-name">${MO[m]}</div><div class="wkh">${WK.map(w=>`<span>${w}</span>`).join('')}</div><div class="dg">`;
@@ -1118,6 +1121,7 @@ function renderCalendar(c,ban){
   }
   // Barra de ações: admin pode gravar já (sem passar pelo resumo)
   h+=`</div></div><div class="btn-row"><button class="btn btn-s" onclick="${adm?'cancelAdminMarking()':'STEP=0;render()'}">← ${adm?'Cancelar':'Regras'}</button><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <button class="btn btn-s" onclick="toggleRangeMode()" style="${RANGE_MODE?'background:var(--warn);color:#fff;border-color:var(--warn)':''}">📐 ${RANGE_MODE?'Intervalo ON — Cancelar':'Intervalo'}</button>
     <button class="btn btn-s" onclick="clearAll()">🗑 Limpar</button>
     <button class="btn btn-s" ${totalUsed>0&&(adm||remain>=0)?'':'disabled'} onclick="STEP=2;render()">Resumo →</button>
     ${adm?`<button class="btn btn-p" ${totalUsed>0?'':'disabled'} onclick="doSave()">💾 Gravar e Aprovar</button>`:''}
@@ -1128,18 +1132,54 @@ function renderCalendar(c,ban){
 function toggleDay(dx){
   // Bloquear alteração de dias dos 10 consecutivos
   if(IS_EDIT_MODE&&LOCKED_DAYS.has(dx)){alert('🔒 Este dia faz parte dos 10 dias consecutivos e não pode ser alterado.');return;}
-  if(RANGE_START){let s=pd(RANGE_START),e=pd(dx);if(e<s){const t=s;s=e;e=t;}let d=new Date(s);while(d<=e){const x=ds(d.getFullYear(),d.getMonth(),d.getDate());if(isBiz(x)&&!isDayBlocked(SEL_EMP,x)&&!(IS_EDIT_MODE&&LOCKED_DAYS.has(x)))SEL_DAYS.add(x);d.setDate(d.getDate()+1);}RANGE_START=null;}
-  else if(SEL_DAYS.has(dx))SEL_DAYS.delete(dx);
-  else if(!isDayBlocked(SEL_EMP,dx)){RANGE_START=dx;SEL_DAYS.add(dx);}
+  
+  if(RANGE_MODE){
+    // Modo intervalo explícito: 1º clique define início, 2º clique preenche
+    if(!RANGE_START){
+      if(isDayBlocked(SEL_EMP,dx)){showToast('⚠️ Esse dia está bloqueado. Escolhe outro.','w',3000);return;}
+      RANGE_START=dx;SEL_DAYS.add(dx);
+      showToast('📐 Agora clica no <b>último</b> dia do intervalo.','w',4000);
+    }else{
+      let s=pd(RANGE_START),e=pd(dx);if(e<s){const t=s;s=e;e=t;}
+      let added=0,d=new Date(s);
+      while(d<=e){
+        const x=ds(d.getFullYear(),d.getMonth(),d.getDate());
+        if(isBiz(x)&&!isDayBlocked(SEL_EMP,x)&&!(IS_EDIT_MODE&&LOCKED_DAYS.has(x))){
+          if(!SEL_DAYS.has(x))added++;
+          SEL_DAYS.add(x);
+        }
+        d.setDate(d.getDate()+1);
+      }
+      RANGE_START=null;RANGE_MODE=false;
+      showToast(`✓ Intervalo marcado (${added} dia${added===1?'':'s'} adicionado${added===1?'':'s'}).`,'ok',2500);
+    }
+  }else{
+    // Modo individual: clicar adiciona ou remove UM dia
+    if(SEL_DAYS.has(dx))SEL_DAYS.delete(dx);
+    else if(!isDayBlocked(SEL_EMP,dx))SEL_DAYS.add(dx);
+  }
+  render();
+}
+
+function toggleRangeMode(){
+  if(RANGE_MODE){
+    // Cancelar modo intervalo
+    RANGE_MODE=false;
+    if(RANGE_START){SEL_DAYS.delete(RANGE_START);RANGE_START=null;}
+    showToast('Modo intervalo cancelado.','w',2000);
+  }else{
+    RANGE_MODE=true;RANGE_START=null;
+    showToast('📐 <b>Modo intervalo ativado.</b><br>Clica no <b>primeiro</b> dia, depois no <b>último</b>.','w',5000);
+  }
   render();
 }
 function showBlocked(dx){alert(`⚠️ Dia ${fd(dx)} não disponível\n\n${getBlockedInfo(SEL_EMP,dx)}\n\nFala com o(s) colega(s) para combinarem.`);}
 function clearAll(){
   if(IS_EDIT_MODE){
     if(!confirm('Limpar dias pontuais? Os 10 consecutivos mantêm-se.'))return;
-    SEL_DAYS=new Set(LOCKED_DAYS);RANGE_START=null;render();
+    SEL_DAYS=new Set(LOCKED_DAYS);RANGE_START=null;RANGE_MODE=false;render();
   } else {
-    if(confirm('Limpar tudo?')){SEL_DAYS=new Set();RANGE_START=null;render();}
+    if(confirm('Limpar tudo?')){SEL_DAYS=new Set();RANGE_START=null;RANGE_MODE=false;render();}
   }
 }
 
@@ -1206,12 +1246,12 @@ async function doSave(){
   if(adm){
     showToast(`<b>✅ Férias marcadas e aprovadas</b><br>${emp.sh} — ${days.length} dias${days.length?`<br>${fdF(days[0])} a ${fdF(days[days.length-1])}`:''}${excelOk?'<br><small>✓ Registado no Excel</small>':'<br><small>⚠️ Guardado local (Excel não atualizado)</small>'}`,'ok',7000);
     // Voltar ao painel admin (mantém sessão admin)
-    ADMIN_MARKING_FOR=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();RANGE_START=null;
+    ADMIN_MARKING_FOR=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();RANGE_START=null;RANGE_MODE=false;
     STEP='admin';ADMIN_TAB='all';
     setTimeout(()=>render(),500);
   } else {
     showToast(`<b>✅ ${isUpdate?'Alteração submetida!':'Marcação submetida!'}</b>${emp.sh} — ${days.length} dias<br>${fdF(days[0])} a ${fdF(days[days.length-1])}<br><br>⏳ <strong>A aguardar aprovação da responsável.</strong>${excelOk?'<br><small>✓ Registado no Excel</small>':''}`,'ok',8000);
-    STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();updateBadge();
+    STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();RANGE_START=null;RANGE_MODE=false;updateBadge();
     setTimeout(()=>render(),500);
   }
 }
@@ -1868,9 +1908,36 @@ carregarColaboradores().then(()=>{ render(); lerExcel(); lerFaltas(); });
   overlay.addEventListener('click',function(e){if(e.target===overlay)document.getElementById('newsClose').click();});
 })();
 
-// PWA: Service Worker + Badge
+// PWA: Service Worker + Badge + Deteção automática de novas versões
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').then(r=>console.log('SW ok')).catch(e=>console.log('SW err',e));
+  let _updateHandled=false;
+  const handleUpdate=(source)=>{
+    if(_updateHandled)return;
+    _updateHandled=true;
+    console.log('🔄 Nova versão detetada:',source);
+    try{showToast('🔄 <b>Atualização disponível!</b><br>A recarregar em 3 segundos para aplicar a nova versão…','w',3000);}catch(e){}
+    setTimeout(()=>window.location.reload(),3200);
+  };
+
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    console.log('SW ok');
+    // Detetar quando há uma nova versão a instalar
+    reg.addEventListener('updatefound',()=>{
+      const nw=reg.installing;if(!nw)return;
+      nw.addEventListener('statechange',()=>{
+        if(nw.state==='installed'&&navigator.serviceWorker.controller){
+          handleUpdate('updatefound');
+        }
+      });
+    });
+    // Verificar atualizações de 5 em 5 minutos enquanto a app está aberta
+    setInterval(()=>{try{reg.update();}catch(e){}},5*60*1000);
+  }).catch(e=>console.log('SW err',e));
+
+  // Fallback: se o SW controller mudar sem passarmos por updatefound (ex: já estava em waiting quando a página abriu)
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    handleUpdate('controllerchange');
+  });
 }
 function updateAppBadge(n){
   if(navigator.setAppBadge){
