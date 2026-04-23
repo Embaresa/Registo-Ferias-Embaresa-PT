@@ -1443,7 +1443,6 @@ function scrollToMonth(m){const el=document.getElementById(`month-${m}`);if(el)e
 function gerarRelatorio(){
   const hols=new Set(gH(CY).map(h=>h.d));
   const holList=gH(CY);
-  const trimNomes=['1º Trimestre (Janeiro – Março)','2º Trimestre (Abril – Junho)','3º Trimestre (Julho – Setembro)','4º Trimestre (Outubro – Dezembro)'];
   
   let html=`<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8">
 <title>Mapa de Férias ${CY} — Embaresa PT</title>
@@ -1456,16 +1455,18 @@ body{font-family:Arial,sans-serif;color:#1a1a1a}
 .header{text-align:center;margin-bottom:6px;padding-bottom:5px;border-bottom:3px solid #1E3A5F}
 .header h1{font-size:15pt;color:#1E3A5F;margin-bottom:2px}
 .header p{font-size:9pt;color:#666}
-.legenda{display:flex;gap:12px;justify-content:center;margin:5px 0 6px;font-size:7.5pt;flex-wrap:wrap}
+.legenda{display:flex;gap:10px;justify-content:center;margin:5px 0 6px;font-size:7.5pt;flex-wrap:wrap}
 .legenda span{display:flex;align-items:center;gap:3px}
-.legenda i{display:inline-block;width:12px;height:12px;border-radius:2px}
-table{width:100%;border-collapse:collapse}
-th,td{border:1px solid #bbb;padding:3px 2px;text-align:center;font-size:8pt}
-th{background:#1E3A5F;color:#fff;font-weight:600;font-size:8.5pt}
-th.day-hdr{min-width:22px;width:22px}
-th.name-hdr{text-align:left;padding-left:8px;min-width:120px;font-size:8.5pt}
-td.name{text-align:left;padding-left:8px;font-size:8.5pt;white-space:nowrap;font-weight:500}
-td.unit{background:#EFF3F8;font-weight:700;text-align:left;padding-left:8px;font-size:8pt;color:#1E3A5F}
+.legenda i{display:inline-block;width:10px;height:10px;border-radius:2px}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th,td{border:1px solid #bbb;padding:2px 1px;text-align:center;font-size:8pt;overflow:hidden}
+th{background:#1E3A5F;color:#fff;font-weight:600;font-size:8pt}
+th.day-hdr{width:14px;min-width:14px;max-width:14px;padding:3px 0}
+th.month-hdr{font-size:9pt;padding:5px 0;background:#2563EB}
+th.name-hdr{text-align:left;padding-left:8px;width:110px;min-width:110px;max-width:110px;font-size:9pt}
+th.tot-hdr{width:32px;min-width:32px;max-width:32px;font-size:8.5pt}
+td.name{text-align:left;padding-left:8px;font-size:8.5pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+td.unit{background:#EFF3F8;font-weight:700;text-align:left;padding-left:8px;font-size:8.5pt;color:#1E3A5F}
 .we{background:#F1F5F9}
 .hol{background:#FEE2E2;color:#DC2626;font-weight:700}
 .fer{background:#1E3A5F;color:#fff;font-weight:700}
@@ -1476,7 +1477,8 @@ td.unit{background:#EFF3F8;font-weight:700;text-align:left;padding-left:8px;font
 .out{background:#6B7280;color:#fff;font-weight:700}
 td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
 .resumo h2{font-size:14pt;color:#1E3A5F;margin-bottom:8px;border-bottom:2px solid #1E3A5F;padding-bottom:4px}
-.resumo table{font-size:9pt}
+.resumo table{font-size:9pt;table-layout:auto}
+.resumo th,.resumo td{width:auto;min-width:0;max-width:none}
 .resumo th{font-size:9.5pt;padding:6px 10px}
 .resumo td{padding:5px 10px;font-size:9pt}
 .footer{margin-top:10px;padding-top:5px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:7.5pt;color:#999}
@@ -1485,27 +1487,28 @@ td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
 .assinatura .linha{border-top:1px solid #333;margin-top:45px;padding-top:4px;font-size:8pt}
 </style></head><body>`;
 
-  // 4 trimestres — 1 por página
-  for(let trim=0;trim<4;trim++){
-    const mStart=trim*3,mEnd=mStart+3;
+  // 6 páginas — 2 meses por página (Jan-Fev, Mar-Abr, Mai-Jun, Jul-Ago, Set-Out, Nov-Dez)
+  for(let p=0;p<6;p++){
+    const mStart=p*2,mEnd=mStart+2;
+    const paginaTitulo=`${MO[mStart]} – ${MO[mEnd-1]}`;
     html+=`<div class="page">
-    <div class="header"><h1>Mapa de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora · ${trimNomes[trim]}</p></div>
+    <div class="header"><h1>Mapa de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora · ${paginaTitulo}</p></div>
     <div class="legenda">
-      <span><i style="background:#1E3A5F"></i> Férias</span>
-      <span><i style="background:#D97706"></i> Pendente</span>
-      <span><i style="background:#7C3AED"></i> Falta just.</span>
-      <span><i style="background:#DC2626"></i> Falta injust.</span>
-      <span><i style="background:#0891B2"></i> Baixa/Lic.</span>
-      <span><i style="background:#6B7280"></i> Outro</span>
-      <span><i style="background:#FEE2E2;border:1px solid #DC2626"></i> Feriado</span>
+      <span><i style="background:#1E3A5F"></i> Férias aprov.</span>
+      <span><i style="background:#D97706"></i> Férias pend.</span>
+      <span><i style="background:#7C3AED"></i> Falta just. (J)</span>
+      <span><i style="background:#DC2626"></i> Falta injust. (I)</span>
+      <span><i style="background:#0891B2"></i> Baixa (B)/Assist. (A)/Lic. (L)</span>
+      <span><i style="background:#6B7280"></i> Outro (O)</span>
+      <span><i style="background:#FEE2E2;border:1px solid #DC2626"></i> Feriado (F)</span>
       <span><i style="background:#F1F5F9"></i> Fim-semana</span>
     </div>`;
     html+=`<table><thead><tr><th class="name-hdr" rowspan="2">Colaborador</th>`;
     for(let m=mStart;m<mEnd;m++){
       const dm=new Date(CY,m+1,0).getDate();
-      html+=`<th colspan="${dm}" style="border-bottom:none">${MO[m]}</th>`;
+      html+=`<th class="month-hdr" colspan="${dm}">${MO[m]}</th>`;
     }
-    html+=`<th rowspan="2" style="min-width:28px">Tot</th></tr><tr>`;
+    html+=`<th class="tot-hdr" rowspan="2">Total Fer.</th></tr><tr>`;
     for(let m=mStart;m<mEnd;m++){
       const dm=new Date(CY,m+1,0).getDate();
       for(let d=1;d<=dm;d++){
@@ -1520,7 +1523,7 @@ td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
       html+=`<tr><td class="unit" colspan="${totalDays+2}">${u}</td></tr>`;
       EMP.filter(e=>e.u===u).forEach(emp=>{
         const empDays=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
-        const empFaltas=getFaltasEmp(emp.nm);let trimFerCount=0;
+        const empFaltas=getFaltasEmp(emp.nm);let pagFerCount=0;
         html+=`<tr><td class="name">${emp.sh}</td>`;
         for(let m=mStart;m<mEnd;m++){
           const dm=new Date(CY,m+1,0).getDate();
@@ -1528,29 +1531,29 @@ td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
             const dt=new Date(CY,m,d),dx=ds(CY,m,d);let cl='',txt='';
             if(isW(dt)){cl='we';}
             else if(hols.has(dx)){cl='hol';txt='F';}
-            else if(empDays.includes(dx)){cl=appr==='approved'?'fer':'fer-p';txt='●';trimFerCount++;}
+            else if(empDays.includes(dx)){cl=appr==='approved'?'fer':'fer-p';txt='●';pagFerCount++;}
             else{
               const falta=empFaltas.find(f=>dx>=f.dataInicio&&dx<=f.dataFim&&!isW(pd(dx)));
               if(falta){
                 if(falta.tipo==='falta_just'){cl='fj';txt='J';}
                 else if(falta.tipo==='falta_injust'){cl='fi';txt='I';}
                 else if(falta.tipo==='baixa'||falta.tipo==='assist_fam'||falta.tipo==='lic_parental'){cl='bl';txt=falta.tipo==='baixa'?'B':falta.tipo==='assist_fam'?'A':'L';}
-                else if(falta.tipo==='ferias'){cl='fer';txt='●';trimFerCount++;}
+                else if(falta.tipo==='ferias'){cl='fer';txt='●';pagFerCount++;}
                 else{cl='out';txt='O';}
               }
             }
             html+=`<td class="${cl}">${txt}</td>`;
           }
         }
-        html+=`<td class="tot">${trimFerCount||''}</td></tr>`;
+        html+=`<td class="tot">${pagFerCount||''}</td></tr>`;
       });
     });
     html+=`</tbody></table>`;
-    html+=`<div class="footer"><span>${trimNomes[trim]}</span><span>Embaresa PT — Évora</span></div>`;
+    html+=`<div class="footer"><span>${paginaTitulo} · Página ${p+1}/6</span><span>Embaresa PT — Évora</span></div>`;
     html+=`</div>`;
   }
 
-  // Página 5: Resumo
+  // Página de Resumo Anual
   html+=`<div class="page resumo">
   <div class="header"><h1>Resumo Anual de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora</p></div>
   <table><thead><tr>
