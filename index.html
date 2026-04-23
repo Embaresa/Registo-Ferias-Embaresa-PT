@@ -1477,17 +1477,93 @@ td.unit{background:#EFF3F8;font-weight:700;text-align:left;padding-left:8px;font
 .out{background:#6B7280;color:#fff;font-weight:700}
 td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
 .resumo h2{font-size:14pt;color:#1E3A5F;margin-bottom:8px;border-bottom:2px solid #1E3A5F;padding-bottom:4px}
-.resumo table{font-size:9pt;table-layout:auto}
-.resumo th,.resumo td{width:auto;min-width:0;max-width:none}
-.resumo th{font-size:9.5pt;padding:6px 10px}
-.resumo td{padding:5px 10px;font-size:9pt}
+.resumo table{font-size:9pt;table-layout:fixed;width:100%}
+.resumo th,.resumo td{overflow:visible;word-wrap:break-word}
+.resumo th{font-size:9pt;padding:6px 4px;vertical-align:middle}
+.resumo td{padding:5px 6px;font-size:9pt;vertical-align:middle}
 .footer{margin-top:10px;padding-top:5px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:7.5pt;color:#999}
-.assinatura{margin-top:25px;display:flex;gap:50px;justify-content:center}
-.assinatura div{text-align:center;min-width:200px}
-.assinatura .linha{border-top:1px solid #333;margin-top:45px;padding-top:4px;font-size:8pt}
+.assinatura{margin-top:14px;display:flex;gap:50px;justify-content:center}
+.assinatura div{text-align:center;min-width:260px}
+.assinatura .linha{border-top:1px solid #333;margin-top:28px;padding-top:4px;font-size:8.5pt;font-weight:500}
 </style></head><body>`;
 
-  // 6 páginas — 2 meses por página (Jan-Fev, Mar-Abr, Mai-Jun, Jul-Ago, Set-Out, Nov-Dez)
+  // ========== PÁGINA 1: RESUMO ANUAL (folha-capa) ==========
+  // Formatação compacta de períodos: "14/07" · "14–18/07" · "28/07–02/08"
+  const fmtPer=(p)=>{
+    const [,ms,da]=p.s.split('-'),[,me,db]=p.e.split('-');
+    if(p.s===p.e)return `${da}/${ms}`;
+    if(ms===me)return `${da}–${db}/${ms}`;
+    return `${da}/${ms}–${db}/${me}`;
+  };
+
+  html+=`<div class="page resumo">
+  <div class="header"><h1>Resumo Anual de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora</p></div>
+  <table><thead><tr>
+    <th style="text-align:left;width:14%">Colaborador</th>
+    <th style="width:8%">Unidade</th>
+    <th style="width:11%">Secção</th>
+    <th style="width:7%">Dias</th>
+    <th style="text-align:left;width:34%">Períodos de Férias</th>
+    <th style="width:6%">F. Just.</th>
+    <th style="width:6%">F. Inj.</th>
+    <th style="width:6%">Baixas</th>
+    <th style="width:8%">Total Aus.</th>
+  </tr></thead><tbody>`;
+  EMP.forEach(emp=>{
+    const empDays=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
+    const empFaltas=getFaltasEmp(emp.nm);
+    const fj=empFaltas.filter(f=>f.tipo==='falta_just').length;
+    const fi=empFaltas.filter(f=>f.tipo==='falta_injust').length;
+    const bl=empFaltas.filter(f=>['baixa','assist_fam','lic_parental'].includes(f.tipo)).length;
+    // Indicador compacto de estado — substitui a coluna "Estado"
+    const stIcon=empDays.length?(appr==='approved'?'<span title="Aprovado" style="color:#059669">✓</span>':appr==='rejected'?'<span title="Rejeitado" style="color:#DC2626">✗</span>':'<span title="Pendente" style="color:#D97706">⏳</span>'):'';
+    // Períodos de férias (agrupa dias consecutivos)
+    const periods=getPeriods(empDays);
+    let periodosTxt='—';
+    if(periods.length){
+      periodosTxt=periods.map(p=>{
+        const cnt=empDays.filter(d=>d>=p.s&&d<=p.e).length;
+        return `${fmtPer(p)} <span style="color:#666;font-size:7.5pt">(${cnt}d)</span>`;
+      }).join(' · ');
+    }
+    html+=`<tr>
+      <td style="text-align:left;padding-left:10px;font-weight:600">${emp.sh}</td>
+      <td>${emp.u}</td>
+      <td style="font-size:8pt">${emp.sec}</td>
+      <td style="font-weight:700">${empDays.length}/${emp.d} ${stIcon}</td>
+      <td style="text-align:left;padding-left:8px;font-size:8pt;line-height:1.35">${periodosTxt}</td>
+      <td>${fj||'—'}</td>
+      <td>${fi||'—'}</td>
+      <td>${bl||'—'}</td>
+      <td style="font-weight:700">${empDays.length+fj+fi+bl}</td></tr>`;
+  });
+  html+=`</tbody></table>
+  <div style="margin-top:6px;font-size:7.5pt;color:#666;text-align:right">
+    Estado: <span style="color:#059669;font-weight:700">✓ Aprovado</span> · 
+    <span style="color:#D97706;font-weight:700">⏳ Pendente</span> · 
+    <span style="color:#DC2626;font-weight:700">✗ Rejeitado</span>
+  </div>`;
+
+  // Feriados
+  // Feriados — inline compacto, em linha
+  html+=`<div style="margin-top:10px;font-size:8pt;line-height:1.5">
+    <b style="color:#1E3A5F">Feriados Nacionais ${CY}:</b> `;
+  html+=holList.map(h2=>{
+    // data curta dd/mm
+    const parts=h2.d.split('-');
+    return `<span style="color:#DC2626;font-weight:600">${parts[2]}/${parts[1]}</span> ${h2.n}`;
+  }).join(' · ');
+  html+=`</div>`;
+
+  // Assinatura única — Direção
+  html+=`<div class="assinatura">
+    <div><div class="linha">Direção — Sónia Santos</div></div>
+  </div>`;
+
+  html+=`<div class="footer"><span>Gerado em ${new Date().toLocaleDateString('pt-PT')} às ${new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})} · Página 1/7</span><span>Embaresa PT — Évora</span></div>`;
+  html+=`</div>`;
+
+  // ========== PÁGINAS 2-7: CALENDÁRIOS MENSAIS (2 meses por página) ==========
   for(let p=0;p<6;p++){
     const mStart=p*2,mEnd=mStart+2;
     const paginaTitulo=`${MO[mStart]} – ${MO[mEnd-1]}`;
@@ -1549,43 +1625,11 @@ td.tot{font-weight:700;font-size:9pt;background:#EFF3F8}
       });
     });
     html+=`</tbody></table>`;
-    html+=`<div class="footer"><span>${paginaTitulo} · Página ${p+1}/6</span><span>Embaresa PT — Évora</span></div>`;
+    html+=`<div class="footer"><span>${paginaTitulo} · Página ${p+2}/7</span><span>Embaresa PT — Évora</span></div>`;
     html+=`</div>`;
   }
 
-  // Página de Resumo Anual
-  html+=`<div class="page resumo">
-  <div class="header"><h1>Resumo Anual de Férias e Ausências ${CY}</h1><p>Embaresa PT — Évora</p></div>
-  <table><thead><tr>
-    <th style="text-align:left">Colaborador</th><th>Unidade</th><th>Secção</th><th>Dias Férias</th><th>Estado</th><th>Faltas Just.</th><th>Faltas Inj.</th><th>Baixas</th><th>Total Ausências</th>
-  </tr></thead><tbody>`;
-  EMP.forEach(emp=>{
-    const empDays=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
-    const empFaltas=getFaltasEmp(emp.nm);
-    const fj=empFaltas.filter(f=>f.tipo==='falta_just').length;
-    const fi=empFaltas.filter(f=>f.tipo==='falta_injust').length;
-    const bl=empFaltas.filter(f=>['baixa','assist_fam','lic_parental'].includes(f.tipo)).length;
-    const stTxt=appr==='approved'?'Aprovado':appr==='rejected'?'Rejeitado':empDays.length?'Pendente':'—';
-    html+=`<tr><td style="text-align:left;padding-left:10px;font-weight:500">${emp.sh}</td><td>${emp.u}</td><td>${emp.sec}</td>
-      <td style="font-weight:600">${empDays.length}/${emp.d}</td><td>${stTxt}</td><td>${fj||'—'}</td><td>${fi||'—'}</td><td>${bl||'—'}</td>
-      <td style="font-weight:700">${empDays.length+fj+fi+bl}</td></tr>`;
-  });
-  html+=`</tbody></table>`;
-
-  // Feriados
-  html+=`<div style="margin-top:12px"><h3 style="font-size:10pt;color:#1E3A5F;margin-bottom:6px">Feriados Nacionais ${CY}</h3>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:8pt">`;
-  holList.forEach(h2=>{html+=`<span style="background:#FEE2E2;padding:3px 8px;border-radius:4px">${fdF(h2.d)} — ${h2.n}</span>`;});
-  html+=`</div></div>`;
-
-  // Assinaturas
-  html+=`<div class="assinatura">
-    <div><div class="linha">Responsável de Produção<br>Sónia Santos</div></div>
-    <div><div class="linha">Direção</div></div>
-  </div>`;
-
-  html+=`<div class="footer"><span>Gerado em ${new Date().toLocaleDateString('pt-PT')} às ${new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})}</span><span>Embaresa PT — Évora</span></div>`;
-  html+=`</div></body></html>`;
+  html+=`</body></html>`;
   
   const w=window.open('','_blank');
   w.document.write(html);
