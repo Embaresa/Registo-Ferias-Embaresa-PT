@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ferias-v4';
+const CACHE_NAME = 'ferias-v5';
 const ASSETS = [
   './',
   './index.html',
