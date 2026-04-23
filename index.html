@@ -83,7 +83,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .wkh{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-bottom:3px}
 .wkh span{text-align:center;font-size:.5rem;font-weight:600;color:var(--text-l);text-transform:uppercase}
 .dg{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
-.dy{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:.68rem;border-radius:4px;cursor:pointer;transition:all .12s ease;user-select:none}
+.dy{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:.68rem;border-radius:4px;cursor:pointer;transition:all .12s ease;user-select:none;position:relative}
 .dy:hover:not(.ey):not(.we):not(.ho){background:var(--primary-ll)}
 .dy.ey{cursor:default}.dy.we{color:var(--text-l);background:var(--surface-alt);cursor:default}
 .dy.ho{background:var(--danger-l);color:var(--danger);font-weight:600;cursor:default}
@@ -91,6 +91,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .dy.blocked{background:var(--warn-l);color:var(--warn);cursor:not-allowed;font-weight:500}
 .dy.today{box-shadow:inset 0 0 0 2px var(--primary)}
 .dy.aero:not(.sel):not(.blocked):not(.ho):not(.we){background:#F3E8FF;border:1px solid rgba(147,51,234,.25)}
+.dy.has-others::after{content:'';position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:10px;height:2px;border-radius:1px;background:var(--warn);pointer-events:none}
+.dy.has-others.sel::after{background:rgba(255,255,255,.85)}
+.dy.has-others.blocked::after{background:var(--danger)}
+.dy.has-others-ap:not(.sel):not(.blocked):not(.ho):not(.we)::after{background:var(--primary)}
+.dy.has-others-fa:not(.sel):not(.blocked):not(.ho):not(.we)::after{background:#7C3AED}
 
 .period{background:var(--bg);border-radius:var(--rs);padding:.75rem 1rem;margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between}
 .period .info{font-size:.82rem}.period .info b{color:var(--primary)}
@@ -206,7 +211,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="saving" id="saving"><div class="saving-box"><div class="spinner"></div><div id="savingTxt">A gravar...</div></div></div>
 
 <nav class="mobile-nav" id="mobileNav">
-  <button onclick="if(LOGGED_USER){STEP=LOGGED_USER.isAdmin?'admin':0;render();}">
+  <button onclick="if(LOGGED_USER){ADMIN_MARKING_FOR=null;STEP=LOGGED_USER.isAdmin?'admin':0;render();}">
     <span class="nav-icon">🏠</span>Início
   </button>
   <button onclick="STEP='faltas';render()">
@@ -218,7 +223,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <button onclick="doExport()">
     <span class="nav-icon">📥</span>CSV
   </button>
-  <button onclick="if(LOGGED_USER){STEP=-1;LOGGED_USER=null;updateBadge();render();}">
+  <button onclick="if(LOGGED_USER){ADMIN_MARKING_FOR=null;STEP=-1;LOGGED_USER=null;updateBadge();render();}">
     <span class="nav-icon">🚪</span>Sair
   </button>
 </nav>
@@ -422,6 +427,8 @@ const WK=['S','T','Q','Q','S','S','D'];
 let CY=2026, STEP=-1, SEL_EMP=null, SEL_DAYS=new Set(), RANGE_START=null;
 let LOGGED_USER=null; // {id, isAdmin}
 let ADMIN_TAB='pending'; // pending, all, config
+let ADMIN_MARKING_FOR=null; // id do colaborador quando a admin está a marcar férias em nome de alguém (sem restrições)
+function isAdminMarking(){return !!(LOGGED_USER&&LOGGED_USER.isAdmin&&ADMIN_MARKING_FOR!==null);}
 
 // (EMP, RULES e arrays AERNNOVA declarados e carregados em carregarColaboradores acima)
 
@@ -562,7 +569,7 @@ function getConflicts(eid,dayStr){
   return conflicts;
 }
 function getAllConflicts(eid,days){const all=[];days.forEach(day=>{getConflicts(eid,day).forEach(cf=>{if(!all.find(x=>x.emp.id===cf.emp.id&&x.rule===cf.rule))all.push(cf);});});return all;}
-function isDayBlocked(eid,dayStr){return getConflicts(eid,dayStr).length>0;}
+function isDayBlocked(eid,dayStr){if(isAdminMarking())return false;return getConflicts(eid,dayStr).length>0;}
 function getBlockedInfo(eid,dayStr){const c=getConflicts(eid,dayStr);return c.length?c.map(x=>`${x.emp.sh} (${x.rule})`).join(', '):null;}
 
 function checkConsec10(){
@@ -838,7 +845,7 @@ function updateBadge(){
 }
 
 function logout(){
-  if(confirm('Sair da sessão?')){LOGGED_USER=null;STEP=-1;SEL_EMP=null;SEL_DAYS=new Set();updateBadge();render();}
+  if(confirm('Sair da sessão?')){LOGGED_USER=null;STEP=-1;SEL_EMP=null;SEL_DAYS=new Set();ADMIN_MARKING_FOR=null;LOCKED_DAYS=new Set();IS_EDIT_MODE=false;updateBadge();render();}
 }
 
 function renderLogin(c){
@@ -978,6 +985,7 @@ function renderRules(c,ban){
 
 function enterCalendar(){
   SEL_EMP=LOGGED_USER.id;
+  ADMIN_MARKING_FOR=null;
   const existingDays=getEmpDays(LOGGED_USER.id,CY);
   const appr=getApproval(LOGGED_USER.id,CY);
   SEL_DAYS=new Set(existingDays);
@@ -992,6 +1000,31 @@ function enterCalendar(){
   STEP=1;render();
 }
 
+// Admin a marcar/editar férias em nome de outro colaborador — sem restrições
+function adminEnterCalendarFor(empId){
+  if(!LOGGED_USER||!LOGGED_USER.isAdmin){showToast('Apenas administração','e');return;}
+  const emp=EMP.find(e=>e.id===empId);if(!emp)return;
+  ADMIN_MARKING_FOR=empId;
+  SEL_EMP=empId;
+  const existingDays=getEmpDays(empId,CY);
+  SEL_DAYS=new Set(existingDays);
+  // Admin consegue alterar TUDO — sem bloqueio de 10 consecutivos
+  LOCKED_DAYS=new Set();
+  IS_EDIT_MODE=false;
+  RANGE_START=null;
+  STEP=1;render();
+}
+
+function cancelAdminMarking(){
+  ADMIN_MARKING_FOR=null;
+  SEL_EMP=null;
+  SEL_DAYS=new Set();
+  RANGE_START=null;
+  LOCKED_DAYS=new Set();
+  IS_EDIT_MODE=false;
+  STEP='admin';render();
+}
+
 // ============================================================
 // STEP 1: CALENDAR
 // ============================================================
@@ -1000,21 +1033,57 @@ function renderCalendar(c,ban){
   const totalUsed=SEL_DAYS.size;const remain=emp.d-totalUsed;const has10=checkConsec10();
   const hols=new Set(gH(CY).map(h=>h.d));const now=new Date(),todS=ds(now.getFullYear(),now.getMonth(),now.getDate());
   const conflicts=getAllConflicts(SEL_EMP,[...SEL_DAYS]);
+  const adm=isAdminMarking();
 
-  let h=`${ban}${stepper(1)}<div class="card"><h2>📅 ${IS_EDIT_MODE?'Alterar Dias Pontuais':'Marcar Férias'} — ${emp.sh}</h2>
+  // Pré-calcular mapa: dia -> lista de outros colaboradores com marcação (férias/faltas)
+  const othersByDay=new Map();
+  const pushOther=(day,o)=>{if(!othersByDay.has(day))othersByDay.set(day,[]);othersByDay.get(day).push(o);};
+  EMP.forEach(e=>{
+    if(e.id===SEL_EMP)return;
+    const appr=getApproval(e.id,CY);if(appr==='rejected')return;
+    getEmpDays(e.id,CY).forEach(d=>pushOther(d,{sh:e.sh,kind:appr==='approved'?'ap':'pe',icon:appr==='approved'?'🏖️':'⏳',label:appr==='approved'?'Férias aprovadas':'Férias pendentes'}));
+  });
+  FALTAS.forEach(f=>{
+    if(!f.dataInicio||!f.dataFim)return;
+    const eo=EMP.find(e=>e.nm===f.nome||e.sh===f.nome||e.sh===f.nomeCurto);
+    if(eo&&eo.id===SEL_EMP)return;
+    const sh=eo?eo.sh:(f.nomeCurto||f.nome);
+    // Iterar dias do intervalo (string-compare funciona em YYYY-MM-DD)
+    const di=pd(f.dataInicio), df=pd(f.dataFim);
+    if(isNaN(di)||isNaN(df))return;
+    for(let dt=new Date(di); dt<=df; dt.setDate(dt.getDate()+1)){
+      if(dt.getFullYear()!==CY)continue;
+      const dstr=ds(dt.getFullYear(),dt.getMonth(),dt.getDate());
+      pushOther(dstr,{sh,kind:'fa',icon:getTipoIcon(f.tipo),label:getTipoNm(f.tipo)});
+    }
+  });
+
+  let h=`${ban}${stepper(1)}<div class="card"><h2>📅 ${adm?'🔑 Admin · Marcar Férias':IS_EDIT_MODE?'Alterar Dias Pontuais':'Marcar Férias'} — ${emp.sh}</h2>
     <p style="font-size:.82rem;color:var(--text-m);margin-bottom:1rem">${emp.u} · ${emp.sec}</p>`;
-  if(IS_EDIT_MODE)h+=`<div class="alert alert-w" style="margin-bottom:1rem">✏️ <b>Modo alteração:</b> Os ${LOCKED_DAYS.size} dias consecutivos (🔒) estão bloqueados. Só podes alterar os dias pontuais.</div>`;
+  if(adm)h+=`<div class="alert alert-w" style="margin-bottom:1rem">🔑 <b>Modo administração — sem restrições.</b><br>Estás a marcar férias por <b>${emp.nm}</b>. Sobreposições, 10 dias consecutivos e limite de ${emp.d} dias estão desativados. A marcação ficará <b>aprovada automaticamente</b>.</div>`;
+  else if(IS_EDIT_MODE)h+=`<div class="alert alert-w" style="margin-bottom:1rem">✏️ <b>Modo alteração:</b> Os ${LOCKED_DAYS.size} dias consecutivos (🔒) estão bloqueados. Só podes alterar os dias pontuais.</div>`;
   h+=`<div class="cal-info">
       <div class="cal-stat"><div class="v">${totalUsed}</div><div class="l">dias marcados</div></div>
-      <div class="cal-stat"><div class="v" style="color:${remain<0?'var(--danger)':remain===0?'var(--ok)':'var(--primary)'}">${remain}</div><div class="l">dias restantes</div></div>
-      <div class="cal-stat"><div class="v" style="color:${has10?'var(--ok)':'var(--warn)'}">${has10?'✓':'✗'}</div><div class="l">10 consecutivos</div></div>
+      <div class="cal-stat"><div class="v" style="color:${remain<0?(adm?'var(--text-m)':'var(--danger)'):remain===0?'var(--ok)':'var(--primary)'}">${remain}</div><div class="l">dias restantes</div></div>
+      <div class="cal-stat"><div class="v" style="color:${has10?'var(--ok)':(adm?'var(--text-m)':'var(--warn)')}">${has10?'✓':'✗'}</div><div class="l">10 consecutivos</div></div>
     </div>`;
-  if(conflicts.length)conflicts.forEach(cf=>{h+=`<div class="conflict"><div class="title">⚠️ Incompatibilidade com ${cf.emp.sh}</div><div>Dia <b>${fd(cf.day)}</b> — ${cf.rule}</div><div class="suggestion">💬 Fala com <b>${cf.emp.sh}</b> para combinarem.</div></div>`;});
+  if(conflicts.length){
+    if(adm)h+=`<div class="alert alert-w" style="margin-bottom:.5rem">ℹ️ <b>${conflicts.length} sobreposição(ões)</b> detetada(s) — apenas informativo (modo admin).</div>`;
+    conflicts.forEach(cf=>{h+=`<div class="conflict"><div class="title">⚠️ ${adm?'Sobreposição':'Incompatibilidade'} com ${cf.emp.sh}</div><div>Dia <b>${fd(cf.day)}</b> — ${cf.rule}</div>${adm?'':`<div class="suggestion">💬 Fala com <b>${cf.emp.sh}</b> para combinarem.</div>`}</div>`;});
+  }
   else if(totalUsed>0)h+=`<div class="alert alert-s">✅ Sem incompatibilidades.</div>`;
-  if(!has10&&totalUsed>0)h+=`<div class="alert alert-w">⚠️ É obrigatório incluir pelo menos 10 dias úteis consecutivos.</div>`;
-  if(remain<0)h+=`<div class="alert alert-e">🚫 Ultrapassaste o limite! Remove ${Math.abs(remain)} dia(s).</div>`;
+  if(!has10&&totalUsed>0&&!adm)h+=`<div class="alert alert-w">⚠️ É obrigatório incluir pelo menos 10 dias úteis consecutivos.</div>`;
+  if(remain<0&&!adm)h+=`<div class="alert alert-e">🚫 Ultrapassaste o limite! Remove ${Math.abs(remain)} dia(s).</div>`;
 
+  // Legenda com novos indicadores de "outros colegas"
   h+=`<div class="legend"><span><i style="background:var(--primary)"></i> Selecionado</span>${IS_EDIT_MODE?'<span><i style="background:var(--primary);opacity:.5;position:relative"><span style="position:absolute;top:-1px;left:2px;font-size:7px">🔒</span></i> Bloqueado (10 consec.)</span>':''}<span><i style="background:var(--warn-l);border:1px solid var(--warn)"></i> Conflito</span><span><i style="background:var(--danger-l);border:1px solid var(--danger)"></i> Feriado</span><span><i style="background:var(--surface-alt)"></i> Fim-de-semana</span><span><i style="background:#F3E8FF;border:1px solid rgba(147,51,234,.25)"></i> Aernnova</span></div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:.7rem;color:var(--text-m);margin:.25rem 0 .75rem;padding:6px 10px;background:var(--bg);border-radius:var(--rx)">
+    <b style="color:var(--text)">👥 Marcações existentes:</b>
+    <span style="display:inline-flex;align-items:center;gap:4px"><i style="display:inline-block;width:10px;height:2px;background:var(--primary);border-radius:1px"></i> Férias aprovadas</span>
+    <span style="display:inline-flex;align-items:center;gap:4px"><i style="display:inline-block;width:10px;height:2px;background:var(--warn);border-radius:1px"></i> Férias pendentes</span>
+    <span style="display:inline-flex;align-items:center;gap:4px"><i style="display:inline-block;width:10px;height:2px;background:#7C3AED;border-radius:1px"></i> Faltas/Ausências</span>
+    <span style="color:var(--text-l);font-style:italic">— passa o rato para ver quem</span>
+  </div>
   <p style="font-size:.75rem;color:var(--text-l);margin-bottom:1rem">Clica num dia para selecionar. Clica num dia e depois noutro para intervalo.</p><div class="cal-months">`;
   for(let m=0;m<12;m++){
     const f=new Date(CY,m,1),dm=new Date(CY,m+1,0).getDate();let sd=f.getDay();sd=sd===0?6:sd-1;
@@ -1033,11 +1102,26 @@ function renderCalendar(c,ban){
       }
       if(dx===todS)cl+=' today';
       if(isAernnova(dx)&&!isW(dt)&&!hols.has(dx))cl+=' aero';
-      h+=`<div class="${cl}" ${click} ${tip?`title="${tip}"`:''} style="${isLocked?'opacity:.6;cursor:not-allowed;':''}">${isLocked?'🔒':d}</div>`;
+      // Anexar info dos outros ocupados no dia (para tooltip + indicador visual)
+      const others=othersByDay.get(dx);
+      if(others&&others.length&&!isW(dt)&&!hols.has(dx)){
+        cl+=' has-others';
+        // Classe específica para tingir o traço: prioridade fa > ap > pe
+        if(others.some(o=>o.kind==='fa'))cl+=' has-others-fa';
+        else if(others.some(o=>o.kind==='ap'))cl+=' has-others-ap';
+        const list=others.map(o=>`${o.icon} ${o.sh} (${o.label})`).join(' · ');
+        tip=(tip?tip+' | ':'')+`👥 Já marcado: ${list}`;
+      }
+      h+=`<div class="${cl}" ${click} ${tip?`title="${tip.replace(/"/g,'&quot;')}"`:''} style="${isLocked?'opacity:.6;cursor:not-allowed;':''}">${isLocked?'🔒':d}</div>`;
     }
     h+='</div></div>';
   }
-  h+=`</div></div><div class="btn-row"><button class="btn btn-s" onclick="STEP=0;render()">← Regras</button><div style="display:flex;gap:8px"><button class="btn btn-s" onclick="clearAll()">🗑 Limpar</button><button class="btn btn-p" ${totalUsed>0&&remain>=0?'':'disabled'} onclick="STEP=2;render()">Resumo →</button></div></div>`;
+  // Barra de ações: admin pode gravar já (sem passar pelo resumo)
+  h+=`</div></div><div class="btn-row"><button class="btn btn-s" onclick="${adm?'cancelAdminMarking()':'STEP=0;render()'}">← ${adm?'Cancelar':'Regras'}</button><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <button class="btn btn-s" onclick="clearAll()">🗑 Limpar</button>
+    <button class="btn btn-s" ${totalUsed>0&&(adm||remain>=0)?'':'disabled'} onclick="STEP=2;render()">Resumo →</button>
+    ${adm?`<button class="btn btn-p" ${totalUsed>0?'':'disabled'} onclick="doSave()">💾 Gravar e Aprovar</button>`:''}
+  </div></div>`;
   c.innerHTML=h;
 }
 
@@ -1065,22 +1149,28 @@ function clearAll(){
 function renderSummary(c,ban){
   const emp=EMP.find(e=>e.id===SEL_EMP);const days=[...SEL_DAYS].sort();const has10=checkConsec10();
   const conflicts=getAllConflicts(SEL_EMP,days);const periods=getPeriods(days);
+  const adm=isAdminMarking();
 
-  let h=`${ban}${stepper(2)}<div class="card"><h2>📝 Resumo — ${emp.sh}</h2>
+  let h=`${ban}${stepper(2)}<div class="card"><h2>📝 Resumo${adm?' 🔑 Admin':''} — ${emp.sh}</h2>
     <p style="font-size:.82rem;color:var(--text-m);margin-bottom:1.25rem">${emp.u} · ${emp.sec}</p>`;
-  if(conflicts.length){h+=`<div class="alert alert-e">🚫 ${conflicts.length} incompatibilidade(s). Volta atrás!</div>`;conflicts.forEach(cf=>{h+=`<div class="conflict"><div class="title">⚠️ ${cf.emp.sh}</div><div>Dia ${fd(cf.day)} — ${cf.rule}</div></div>`;});}
-  if(!has10)h+=`<div class="alert alert-e">⚠️ É obrigatório incluir pelo menos 10 dias úteis consecutivos!</div>`;
+  if(adm)h+=`<div class="alert alert-w">🔑 <b>Modo administração.</b> Esta marcação ficará <b>aprovada automaticamente</b> e ignora as restrições habituais.</div>`;
+  if(conflicts.length){
+    h+=`<div class="alert ${adm?'alert-w':'alert-e'}">${adm?'ℹ️':'🚫'} ${conflicts.length} ${adm?'sobreposição(ões) — apenas informativo':'incompatibilidade(s). Volta atrás!'}</div>`;
+    conflicts.forEach(cf=>{h+=`<div class="conflict"><div class="title">⚠️ ${cf.emp.sh}</div><div>Dia ${fd(cf.day)} — ${cf.rule}</div></div>`;});
+  }
+  if(!has10&&!adm)h+=`<div class="alert alert-e">⚠️ É obrigatório incluir pelo menos 10 dias úteis consecutivos!</div>`;
 
   h+=`<div class="summary-row"><span>Total dias marcados</span><b>${days.length} / ${emp.d}</b></div>
-    <div class="summary-row"><span>10 dias consecutivos</span><b style="color:${has10?'var(--ok)':'var(--danger)'}">${has10?'✓ Sim':'✗ Não'}</b></div>
+    <div class="summary-row"><span>10 dias consecutivos</span><b style="color:${has10?'var(--ok)':(adm?'var(--text-m)':'var(--danger)')}">${has10?'✓ Sim':'✗ Não'}</b></div>
     <div class="summary-row"><span>Dias pontuais</span><b>${has10?Math.max(0,days.length-10)+' dias':'—'}</b></div>
-    <div class="summary-row"><span>Incompatibilidades</span><b style="color:${conflicts.length?'var(--danger)':'var(--ok)'}">${conflicts.length||'✓ Nenhuma'}</b></div>`;
+    <div class="summary-row"><span>Incompatibilidades</span><b style="color:${conflicts.length?(adm?'var(--warn)':'var(--danger)'):'var(--ok)'}">${conflicts.length||'✓ Nenhuma'}</b></div>`;
 
   h+=`<h3 style="margin-top:1.25rem;margin-bottom:.75rem">Períodos</h3>`;
   periods.forEach(p=>{const cnt=days.filter(d=>d>=p.s&&d<=p.e).length;h+=`<div class="period"><div class="info"><b>${fd(p.s)}</b> a <b>${fd(p.e)}</b> — ${cnt} dia(s)</div></div>`;});
 
+  const canSave=days.length>0&&(adm||(!conflicts.length&&has10&&days.length<=emp.d));
   h+=`</div><div class="btn-row"><button class="btn btn-s" onclick="STEP=1;render()">← Ajustar</button>
-    <button class="btn btn-p" ${!conflicts.length&&has10&&days.length>0&&days.length<=emp.d?'':'disabled'} onclick="doSave()">✓ Confirmar Marcação</button></div>`;
+    <button class="btn btn-p" ${canSave?'':'disabled'} onclick="doSave()">✓ ${adm?'Confirmar e Aprovar':'Confirmar Marcação'}</button></div>`;
   c.innerHTML=h;
 }
 
@@ -1088,16 +1178,24 @@ async function doSave(){
   const emp=EMP.find(e=>e.id===SEL_EMP);const days=[...SEL_DAYS].sort();
   const existingDays=getEmpDays(SEL_EMP,CY);
   const isUpdate=existingDays.length>0;
+  const adm=isAdminMarking();
   
-  if(isUpdate&&!confirm('Tens férias já submetidas/aprovadas.\n\nAo alterar, o pedido volta a PENDENTE e precisa de nova aprovação.\n\nConfirmar alteração?'))return;
+  if(adm){
+    if(!confirm(`Marcar ${days.length} dias de férias para ${emp.nm} (${CY}) e APROVAR automaticamente?\n\nEsta ação ignora as restrições habituais.`))return;
+  } else if(isUpdate){
+    if(!confirm('Tens férias já submetidas/aprovadas.\n\nAo alterar, o pedido volta a PENDENTE e precisa de nova aprovação.\n\nConfirmar alteração?'))return;
+  }
   
   document.getElementById('saving').classList.add('show');
-  document.getElementById('savingTxt').textContent=isUpdate?'A atualizar marcação...':'A gravar marcação...';
+  document.getElementById('savingTxt').textContent=adm?'A marcar e aprovar...':isUpdate?'A atualizar marcação...':'A gravar marcação...';
   setEmpDays(SEL_EMP,CY,days);
-  setApproval(SEL_EMP,CY,'pending');
+  setApproval(SEL_EMP,CY,adm?'approved':'pending');
   
   let excelOk;
-  if(isUpdate){
+  if(adm){
+    // Admin marca sempre como linha nova Aprovada — lerExcel resolve duplicados pela linha mais recente
+    excelOk=await gravarExcel(emp,days,'Aprovado');
+  } else if(isUpdate){
     // Só atualizar a linha existente — NÃO criar nova
     excelOk=await atualizarExcel(emp,'Pendente');
   }else{
@@ -1105,9 +1203,17 @@ async function doSave(){
   }
   document.getElementById('saving').classList.remove('show');
 
-  showToast(`<b>✅ ${isUpdate?'Alteração submetida!':'Marcação submetida!'}</b>${emp.sh} — ${days.length} dias<br>${fdF(days[0])} a ${fdF(days[days.length-1])}<br><br>⏳ <strong>A aguardar aprovação da responsável.</strong>${excelOk?'<br><small>✓ Registado no Excel</small>':''}`,'ok',8000);
-  STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();updateBadge();
-  setTimeout(()=>render(),500);
+  if(adm){
+    showToast(`<b>✅ Férias marcadas e aprovadas</b><br>${emp.sh} — ${days.length} dias${days.length?`<br>${fdF(days[0])} a ${fdF(days[days.length-1])}`:''}${excelOk?'<br><small>✓ Registado no Excel</small>':'<br><small>⚠️ Guardado local (Excel não atualizado)</small>'}`,'ok',7000);
+    // Voltar ao painel admin (mantém sessão admin)
+    ADMIN_MARKING_FOR=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();RANGE_START=null;
+    STEP='admin';ADMIN_TAB='all';
+    setTimeout(()=>render(),500);
+  } else {
+    showToast(`<b>✅ ${isUpdate?'Alteração submetida!':'Marcação submetida!'}</b>${emp.sh} — ${days.length} dias<br>${fdF(days[0])} a ${fdF(days[days.length-1])}<br><br>⏳ <strong>A aguardar aprovação da responsável.</strong>${excelOk?'<br><small>✓ Registado no Excel</small>':''}`,'ok',8000);
+    STEP=-1;LOGGED_USER=null;SEL_EMP=null;SEL_DAYS=new Set();IS_EDIT_MODE=false;LOCKED_DAYS=new Set();updateBadge();
+    setTimeout(()=>render(),500);
+  }
 }
 
 // ============================================================
@@ -1145,13 +1251,15 @@ function renderAdminPending(){
     h+=`</div><div class="req-actions">
       <button class="btn btn-ok" onclick="approveReq(${emp.id})">✓ Aprovar</button>
       <button class="btn btn-d" onclick="rejectReq(${emp.id})">✗ Rejeitar</button>
+      <button class="btn btn-s" onclick="adminEnterCalendarFor(${emp.id})">✏️ Editar</button>
     </div></div>`;
   });
   return h;
 }
 
 function renderAdminAll(){
-  let h=`<div style="display:flex;gap:8px;margin-bottom:1rem"><button class="btn btn-s" onclick="viewAll()">👁 Ver Mapa</button><button class="btn btn-s" onclick="doExport()">📥 Exportar CSV</button></div>`;
+  let h=`<div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap"><button class="btn btn-s" onclick="viewAll()">👁 Ver Mapa</button><button class="btn btn-s" onclick="doExport()">📥 Exportar CSV</button></div>
+  <div class="alert alert-s" style="margin-bottom:1rem;font-size:.78rem">🔑 <b>Dica:</b> Carrega em <b>📅 Marcar</b> em qualquer colaborador para marcar/editar férias em nome dele — <b>sem restrições</b> e com aprovação automática.</div>`;
   EMP.forEach(emp=>{
     const days=getEmpDays(emp.id,CY);const appr=getApproval(emp.id,CY);
     const cls=appr==='approved'?'ok':appr==='rejected'?'rj':'pe';
@@ -1160,9 +1268,14 @@ function renderAdminAll(){
     if(days.length){
       const periods=getPeriods(days);
       h+=`<div class="req-body" style="font-size:.78rem">`;periods.forEach(p=>{const cnt=days.filter(d=>d>=p.s&&d<=p.e).length;h+=`${fdF(p.s)} a ${fdF(p.e)} (${cnt}d) · `;});h+=`</div>`;
-      if(appr!=='approved')h+=`<div class="req-actions"><button class="btn btn-ok" style="padding:6px 14px;font-size:.78rem" onclick="approveReq(${emp.id})">Aprovar</button>${appr!=='rejected'?`<button class="btn btn-d" style="padding:6px 14px;font-size:.78rem" onclick="rejectReq(${emp.id})">Rejeitar</button>`:''}<button class="btn btn-s" style="padding:6px 14px;font-size:.78rem" onclick="resetReq(${emp.id})">Limpar</button></div>`;
     }
-    h+=`</div>`;
+    // Ações (sempre disponíveis — admin pode marcar mesmo sem pedido existente)
+    h+=`<div class="req-actions">
+      <button class="btn btn-p" style="padding:6px 14px;font-size:.78rem" onclick="adminEnterCalendarFor(${emp.id})">📅 ${days.length?'Editar':'Marcar'} férias</button>`;
+    if(days.length&&appr!=='approved')h+=`<button class="btn btn-ok" style="padding:6px 14px;font-size:.78rem" onclick="approveReq(${emp.id})">Aprovar</button>`;
+    if(days.length&&appr!=='rejected'&&appr!=='approved')h+=`<button class="btn btn-d" style="padding:6px 14px;font-size:.78rem" onclick="rejectReq(${emp.id})">Rejeitar</button>`;
+    if(days.length)h+=`<button class="btn btn-s" style="padding:6px 14px;font-size:.78rem" onclick="resetReq(${emp.id})">🗑 Limpar</button>`;
+    h+=`</div></div>`;
   });
   return h;
 }
