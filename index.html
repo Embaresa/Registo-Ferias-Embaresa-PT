@@ -927,6 +927,7 @@ function render(){
   if(CY===2026){
     const _ld=LOGGED_USER?getEmpDays(LOGGED_USER.id,CY):[];
     if(isPrazoExpirado()&&LOGGED_USER&&_ld.length===0&&!LOGGED_USER.isAdmin)ban=`<div class="deadline-warn">⚠️ <strong>Prazo expirado!</strong> Ainda não marcaste férias — marca o mais rápido possível.</div>`;
+    else if(isPrazoExpirado()&&LOGGED_USER&&_ld.length>0&&!LOGGED_USER.isAdmin)ban=`<div class="deadline-warn">ℹ️ <strong>Prazo de marcação inicial expirou em ${DATA_LIMITE_FMT}.</strong><br><small>Podes ainda alterar os dias pontuais — os 10 consecutivos ficam bloqueados.</small></div>`;
     else if(isPrazoExpirado())ban=`<div class="deadline-ban">🚫 <strong>Prazo expirado!</strong> Marcação de férias terminou em ${DATA_LIMITE_FMT}.</div>`;
     else if(diasRestantes()<=15)ban=`<div class="deadline-warn">⏰ Faltam <strong>${diasRestantes()} dias</strong> para o prazo (${DATA_LIMITE_FMT}).</div>`;
   }
@@ -947,8 +948,9 @@ function render(){
 function renderRules(c,ban){
   const myDays=getEmpDays(LOGGED_USER.id,CY);
   const myAppr=getApproval(LOGGED_USER.id,CY);
-  // Bloqueia só se prazo expirou E já tem dias marcados (quem não marcou ainda pode marcar)
-  const blocked=isPrazoExpirado()&&CY===2026&&!LOGGED_USER?.isAdmin&&myDays.length>0;
+  // Após o prazo: quem ainda não marcou pode marcar; quem já tem aprovado/pendente pode alterar dias pontuais
+  // (os 10 consecutivos ficam bloqueados pelo LOCKED_DAYS em modo edição — ver enterCalendar)
+  const blocked=false;
   let statusAlert='';
   if(myDays.length>0){
     if(myAppr==='approved')statusAlert=`<div class="alert alert-s" style="font-size:.9rem;padding:16px 20px;margin-bottom:1.25rem">✅ <strong>As tuas férias foram aprovadas!</strong><br>${myDays.length} dias marcados para ${CY}.<br><small style="color:var(--text-m)">Podes alterar os dias pontuais — os 10 consecutivos ficam bloqueados. O pedido volta a pendente.</small></div>`;
